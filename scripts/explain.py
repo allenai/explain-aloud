@@ -856,6 +856,24 @@ def kokoro_lang(voice: str) -> str:
     return KOKORO_LANGS.get((voice or "a")[:1], ("en-us", ""))[0]
 
 
+def show_status(cfg: dict) -> int:
+    print(f"config    : {config_path()}")
+    print(f"mode      : {cfg['mode']}")
+    print(f"model     : {cfg['model']}  (timeout {cfg['timeout_s']}s, "
+          f"≤{cfg['max_speech_words']} words)")
+    print(f"auto      : >{cfg['auto_min_chars']} chars, "
+          f"≥{cfg['auto_min_bullets']} bullets, or table/code present")
+    print(f"voice     : {cfg['provider']}"
+          + (f" / {cfg['voice']}" if cfg["voice"] else " (default)")
+          + f" @ {cfg['speed']}  (from {ra_config_path()})")
+    print(f"control   : {'mpv available — pause/resume/back work' if _which('mpv') else 'mpv NOT installed — no pause/resume/back'}")
+    if cfg.get("ra_auto_read"):
+        print("WARNING   : read-aloud's auto_read is ON — explain-aloud skips "
+              "speaking while it is, so two voices never race. Turn it off "
+              "with /read-aloud:speak-auto.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -877,14 +895,17 @@ def main() -> int:
                     help="seek back (default 10s) within the current audio "
                          "chunk; rewinding across chunk boundaries is not "
                          "supported")
+    ap.add_argument("--mode", choices=["always", "auto", "off"],
+                    help="when explanations speak; persisted")
+    ap.add_argument("--status", action="store_true")
+    ap.add_argument("--print", action="store_true", dest="print_only",
+                    help="print the generated spoken script, speak nothing")
     args = ap.parse_args()
 
     if args.hook:
         return hook_mode()
     if args.cancel:
         return cancel_mode()
-    if args.worker:
-        return worker_mode(args.transcript or "")
     if args.pause:
         return control_mode("pause")
     if args.resume:
@@ -894,14 +915,38 @@ def main() -> int:
     if args.stop:
         stop()
         return 0
+    if args.mode:
+        save_cfg({"mode": args.mode})
+        print(f"mode set to {args.mode}")
+        return 0
 
     cfg = load_cfg()
+
+    if args.status:
+        return show_status(cfg)
+
+    if args.print_only:
+        t = (pathlib.Path(args.transcript) if args.transcript
+             else newest_transcript(args.project))
+        if not t or not t.exists():
+            print("no transcript found", file=sys.stderr)
+            return 1
+        user_msg, reply = last_exchange(t, int(cfg["context_cap_chars"]))
+        print(generate_script(user_msg, reply, cfg))
+        return 0
 
     if args.detach:
         argv = [a for a in sys.argv[1:] if a != "--detach"]
         detach(argv)
         print("speaking…")
         return 0
+
+    if args.worker:
+        t = (pathlib.Path(args.transcript) if args.transcript
+             else newest_transcript(args.project))
+        if not t or not t.exists():
+            return 0
+        return worker_mode(str(t))
 
     if args.stdin:
         raw = sys.stdin.read()
