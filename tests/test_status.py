@@ -9,6 +9,14 @@ def test_speaking_status_percent_basis():
     assert explain._speaking_status(chunks, 1) == {"phase": "speaking", "done": 4, "total": 10}
 
 
+def test_interp_done_clamps_and_scales():
+    # halfway through a 100-char chunk that follows 200 spoken chars
+    assert explain._interp_done(200, 100, pos=5, dur=10) == 250
+    assert explain._interp_done(200, 100, pos=0, dur=10) == 200
+    assert explain._interp_done(200, 100, pos=99, dur=10) == 300   # clamped
+    assert explain._interp_done(200, 100, pos=5, dur=0) == 200     # no duration yet
+
+
 def test_worker_writes_then_clears_status(tmp_path, monkeypatch):
     t = tmp_path / "s.jsonl"
     t.write_text(json.dumps({"type": "assistant",

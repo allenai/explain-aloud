@@ -85,6 +85,59 @@ def _speaking_status(chunks: list, i: int) -> dict:
             "done": sum(len(c) for c in chunks[:i]),
             "total": sum(len(c) for c in chunks)}
 
+
+def _interp_done(before: int, chunk_len: int, pos: float, dur: float) -> int:
+    """Chars spoken so far, interpolating within the playing chunk."""
+    if not dur or dur <= 0:
+        return before
+    frac = min(1.0, max(0.0, pos / dur))
+    return int(before + frac * chunk_len)
+
+
+def mpv_position() -> "tuple[float, float] | None":
+    """(time-pos, duration) of the playing mpv, or None without one."""
+    if not MPV_SOCKET.exists():
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(str(MPV_SOCKET))
+            vals = {}
+            for rid, prop in ((1, "time-pos"), (2, "duration")):
+                s.sendall((json.dumps({"command": ["get_property", prop],
+                                       "request_id": rid}) + "\n").encode())
+            buf = b""
+            while len(vals) < 2:
+                piece = s.recv(4096)
+                if not piece:
+                    break
+                buf += piece
+                *lines, buf = buf.split(b"\n")
+                for line in lines:
+                    try:
+                        msg = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    rid = msg.get("request_id")
+                    if rid in (1, 2) and isinstance(msg.get("data"), (int, float)):
+                        vals[rid] = float(msg["data"])
+            if 1 in vals and 2 in vals:
+                return vals[1], vals[2]
+    except OSError:
+        pass
+    return None
+
+
+def _chunk_progress_loop(before: int, chunk_len: int, total: int,
+                         stop_evt: "threading.Event") -> None:
+    """Once a second while a chunk plays: refine `done` from mpv's position."""
+    while not stop_evt.wait(1.0):
+        pd = mpv_position()
+        if pd:
+            write_status(phase="speaking",
+                         done=_interp_done(before, chunk_len, pd[0], pd[1]),
+                         total=total)
+
 FALLBACK_LINE = "Couldn't prepare an explanation — the answer is on screen."
 
 IS_MAC = sys.platform == "darwin"
@@ -752,19 +805,26 @@ def play_chunked(text: str, cfg: dict, synth) -> None:
     claim()                                      # never overlap two readings
 
     chunks = chunk_text(text, int(cfg["first_chars"]), int(cfg["chunk_chars"]))
+    total = sum(len(c) for c in chunks)
     synth(chunks[0], PARTS[0])
     for i in range(len(chunks)):
-        write_status(**_speaking_status(chunks, i))
+        st = _speaking_status(chunks, i)
+        write_status(**st)
         cur = PARTS[i % 2]
         _player = subprocess.Popen(
             player_cmd(cur), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             **quiet_win())
+        stop_evt = threading.Event()
+        threading.Thread(target=_chunk_progress_loop,
+                         args=(st["done"], len(chunks[i]), total, stop_evt),
+                         daemon=True).start()
         prefetch = None
         if i + 1 < len(chunks):
             prefetch = threading.Thread(
                 target=synth, args=(chunks[i + 1], PARTS[(i + 1) % 2]), daemon=True)
             prefetch.start()
         _player.wait()
+        stop_evt.set()
         if prefetch:
             prefetch.join()
     release()

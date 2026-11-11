@@ -1,17 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
+type Status = { phase: '' | 'generating' | 'speaking'; text: string }
+
 const isPaused = atom(
   { plugin: 'explain-aloud', key: 'isPaused' } as const,
   false,
 )
 
-// One line describing what the pipeline is doing right now, '' when idle:
-// "🧠 writing script… 12s" while the model works (no true percentage exists
-// there), "🔊 speaking 60%" during playback (chars spoken / total).
-const statusText = atom(
-  { plugin: 'explain-aloud', key: 'statusText' } as const,
-  '',
+// What the pipeline is doing now; drives which buttons show and the label
+// beside them: "🧠 writing script… 12s" (elapsed — generation can't report a
+// true percentage), "🔊 60%" during playback (chars spoken / total).
+const status = atom(
+  { plugin: 'explain-aloud', key: 'status' } as const,
+  { phase: '', text: '' } as Status,
 )
 
 // Locates this plugin's explain.py (newest installed copy in the plugin
@@ -41,24 +43,28 @@ export const register: Register = on => {
     statusPath = `${(tmpLine || '/tmp').trim()}/claude-explain-aloud-status.json`
 
     $.clock.every(1500, async () => {
-      let text = ''
+      let next_: Status = { phase: '', text: '' }
       try {
         if (await $.fs.exists(statusPath)) {
           const raw = await $.fs.read(statusPath)
           const s = JSON.parse(typeof raw === 'string' ? raw : '')
           if (s.phase === 'generating') {
             const secs = Math.max(0, Math.round(Date.now() / 1000 - s.started))
-            text = `🧠 writing script… ${secs}s`
+            next_ = { phase: 'generating', text: `🧠 writing script… ${secs}s` }
           } else if (s.phase === 'speaking' && s.total > 0) {
-            text = `🔊 speaking ${Math.round((100 * s.done) / s.total)}%`
+            const pct = Math.round((100 * s.done) / s.total)
+            next_ = { phase: 'speaking', text: `🔊 ${pct}%` }
           }
         }
       } catch {
-        text = ''
+        next_ = { phase: '', text: '' }
       }
-      const current = await read($, statusText)
-      if (current !== text) {
-        await update($, statusText, () => text)
+      const current = await read($, status)
+      if (current.phase !== next_.phase || current.text !== next_.text) {
+        await update($, status, () => next_)
+        if (next_.phase === '') {
+          await update($, isPaused, () => false)
+        }
       }
     })
 
@@ -71,45 +77,54 @@ export const register: Register = on => {
     }
 
     const paused = await read($, isPaused)
-    const progress = await read($, statusText)
+    const st = await read($, status)
     const { Box, Button, Text } = $.ui.resolve(e)
     const run = (args: string[]) =>
       $.process.run(['python3', script, ...args])
 
+    const stopButton = (
+      <Button
+        key="stop"
+        label="⏹ Stop"
+        onPress={async () => {
+          await run(['--cancel'])
+          await update($, isPaused, () => false)
+          await update($, status, () => ({ phase: '', text: '' }) as Status)
+        }}
+      />
+    )
+
     return (
       <Box>
-        <Text dimColor>{progress ? `${progress} ` : 'explain-aloud '}</Text>
-        <Button
-          key="explain"
-          label="🎙️ Explain"
-          onPress={async () => {
-            $.ui.toast('Generating spoken explanation (~15–40s)…')
-            await update($, isPaused, () => false)
-            await run(['--worker', '--force', '--project', cwd, '--detach'])
-          }}
-        />
-        <Button
-          key="back"
-          label="⏪ 5s"
-          onPress={() => run(['--back', '5'])}
-        />
-        <Button
-          key="pause"
-          label={paused ? '▶ Resume' : '⏸ Pause'}
-          onPress={async () => {
-            const wantPause = !paused
-            await run([wantPause ? '--pause' : '--resume'])
-            await update($, isPaused, () => wantPause)
-          }}
-        />
-        <Button
-          key="stop"
-          label="⏹ Stop"
-          onPress={async () => {
-            await run(['--cancel'])
-            await update($, isPaused, () => false)
-          }}
-        />
+        <Text dimColor>explain-aloud </Text>
+        {st.phase === '' && (
+          <Button
+            key="explain"
+            label="🎙️ Explain"
+            onPress={async () => {
+              await update($, isPaused, () => false)
+              await update($, status, () =>
+                ({ phase: 'generating', text: '🧠 writing script…' }) as Status)
+              await run(['--worker', '--force', '--project', cwd, '--detach'])
+            }}
+          />
+        )}
+        {st.phase === 'speaking' && (
+          <Button key="back" label="⏪ 5s" onPress={() => run(['--back', '5'])} />
+        )}
+        {st.phase === 'speaking' && (
+          <Button
+            key="pause"
+            label={paused ? '▶ Resume' : '⏸ Pause'}
+            onPress={async () => {
+              const wantPause = !paused
+              await run([wantPause ? '--pause' : '--resume'])
+              await update($, isPaused, () => wantPause)
+            }}
+          />
+        )}
+        {st.phase !== '' && stopButton}
+        {st.text !== '' && <Text dimColor> {st.text}</Text>}
       </Box>
     )
   })
