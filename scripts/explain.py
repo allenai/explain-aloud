@@ -256,6 +256,75 @@ def should_speak(reply: str, cfg: dict) -> bool:
     prose = re.sub(r"\s+", " ", reply).strip()
     return len(prose) > int(cfg.get("auto_min_chars", 700))
 
+# ------------------------------------------------------------ script generation
+
+PROMPT_TEMPLATE = """\
+You turn a coding assistant's reply into a SPOKEN explanation, like a teacher
+explaining a slide rather than reading it. Your output goes directly to
+text-to-speech, so output ONLY the words to be spoken: plain text, no
+markdown, no headings, no timestamps, no preamble.
+
+Rules:
+- The listener must be able to act without reading the screen. Lead with the
+  conclusion, then what to do.
+- Natural spoken rhythm, short sentences.
+- Unpack terse references: name the thing being referred to and explain it as
+  if the listener hasn't parsed the jargon in the text. Use the user's
+  question below to resolve references like "option 2".
+- If the reply contains a table or diagram, do NOT read it; point at it
+  instead, e.g. "the table on screen — the third row is the problem", and say
+  what to look for in it.
+- Never recite file paths, CLI flags, arrows, URLs, or code. Describe what
+  code does. Shorten a path to its last meaningful name ("the explain script").
+- Length proportional to the reply: at most {max_speech_words} words; a short
+  reply gets a few sentences.
+
+The user's question was:
+{user_msg}
+
+The assistant's reply to explain:
+{reply}
+"""
+
+
+def build_prompt(user_msg: str, reply: str, cfg: dict) -> str:
+    return PROMPT_TEMPLATE.format(
+        max_speech_words=int(cfg.get("max_speech_words", 250)),
+        user_msg=user_msg or "(not available)",
+        reply=reply)
+
+
+def sanitize_script(s: str) -> str:
+    """Model output → TTS-safe plain text, whatever the model did anyway."""
+    s = re.sub(r"^\s*\[\d{1,2}:\d{2}\]\s*", "", s)      # leaked [HH:MM] stamp
+    s = re.sub(r"^```[^\n]*$", " ", s, flags=re.M)      # fence lines
+    s = re.sub(r"`([^`]*)`", r"\1", s)
+    s = re.sub(r"^[ \t]*[-*+]\s+", "", s, flags=re.M)   # bullet markers
+    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.M)        # headings
+    s = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", s)  # emphasis
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def generate_script(user_msg: str, reply: str, cfg: dict) -> str:
+    """Spoken script via headless claude CLI. Never raises; FALLBACK_LINE on
+    any failure — silence would hide breakage, verbatim would defeat the point."""
+    env = dict(os.environ)
+    env["EXPLAIN_ALOUD_CHILD"] = "1"    # our own Stop hook must ignore this run
+    try:
+        r = subprocess.run(
+            ["claude", "-p", "--model", str(cfg.get("model", "haiku"))],
+            input=build_prompt(user_msg, reply, cfg),
+            capture_output=True, text=True, env=env,
+            timeout=float(cfg.get("timeout_s", 60)), **quiet_win())
+        if getattr(r, "returncode", 1) != 0:
+            return FALLBACK_LINE
+        script = sanitize_script(r.stdout or "")
+        return script or FALLBACK_LINE
+    except Exception as e:               # noqa: BLE001 — must never raise
+        print(f"explain-aloud: generation failed: {e}", file=sys.stderr)
+        return FALLBACK_LINE
+
 
 def spoken_form(md: str, max_chars: int) -> str:
     """Markdown reads terribly aloud — strip everything that is not prose."""
