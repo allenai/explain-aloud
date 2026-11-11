@@ -15,7 +15,7 @@ low-latency playback. read-aloud stays the place you pick your voice.
 ## Install (2 minutes)
 
 **Ai2 folks — one click**: add it from the organization's plugin library:
-<https://claude.ai/customize/plugins/plugin_01Jtm4zwTbiWuNwTfFp6pFp3>
+<https://claude.ai/customize/plugins/plugin_011ivn4eUzgHgcuSf4ebXSfw>
 (or in Claude Code: `/plugin` → Marketplaces → add the organization library →
 `/plugin install explain-aloud@claudeai-organization-library`).
 
