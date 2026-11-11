@@ -47,6 +47,9 @@ PIDFILE = pathlib.Path(tempfile.gettempdir()) / "claude-read-aloud.pid"
 PARTS = [pathlib.Path(tempfile.gettempdir()) / f"claude-explain-aloud-{os.getpid()}-{i}.wav"
          for i in (0, 1)]
 PART_GLOB = "claude-explain-aloud-*-[01].wav"
+# The worker (generation + playback) registers here so a new user prompt can
+# cancel it even while it is still waiting on the model, before any claim().
+WORKER_PIDFILE = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-worker.pid"
 
 FALLBACK_LINE = "Couldn't prepare an explanation — the answer is on screen."
 
@@ -663,7 +666,16 @@ def _on_term(_sig=None, _frm=None):
     if _kokoro_runner and _kokoro_runner.poll() is None:
         _kokoro_runner.terminate()
     release()
+    _clear_worker_pidfile()
     os._exit(0)
+
+
+def _clear_worker_pidfile() -> None:
+    try:
+        if WORKER_PIDFILE.read_text().strip() == str(os.getpid()):
+            WORKER_PIDFILE.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
 
 
 def _sweep_parts() -> None:
@@ -713,9 +725,78 @@ def detach(argv: list[str]) -> None:
     subprocess.Popen([sys.executable, os.path.abspath(__file__), *argv], **kwargs)
 
 
+def speak_text(text: str, cfg: dict) -> None:
+    """Speak plain text with the configured engine (claims at speak time)."""
+    synth = make_synth(cfg)
+    if synth is None:
+        speak_direct(text, cfg)
+    else:
+        play_chunked(text, cfg, synth)
+
+
 def hook_mode() -> int:
-    """Stop-hook entry: exit fast and NEVER fail — Claude's flow comes first.
-    (The explanation pipeline lands in a later task; no-op for now.)"""
+    """Stop-hook entry: exit fast and NEVER fail — Claude's flow comes first."""
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+        if os.environ.get("EXPLAIN_ALOUD_CHILD"):
+            return 0                     # our own claude -p run; never recurse
+        cfg = load_cfg()
+        if cfg.get("mode") == "off":
+            return 0
+        if cfg.get("ra_auto_read"):
+            print("explain-aloud: read-aloud's auto_read is on — skipping so two "
+                  "voices never race. Turn it off with /read-aloud:speak-auto.",
+                  file=sys.stderr)
+            return 0
+        path = event.get("transcript_path", "")
+        if path and pathlib.Path(path).exists():
+            detach(["--worker", "--transcript", path])
+    except Exception as e:                # noqa: BLE001 — deliberate
+        print(f"explain-aloud hook: {e}", file=sys.stderr)
+    return 0
+
+
+def worker_mode(transcript: str) -> int:
+    """Detached pipeline: extract → trigger → generate → speak.
+
+    The worker pidfile is written BEFORE generation and claim() happens only
+    at speak time — a new prompt cancels a stale worker via the pidfile, so a
+    slow generation can never claim over a newer reply's explanation.
+    """
+    try:
+        WORKER_PIDFILE.write_text(str(os.getpid()))
+    except OSError:
+        pass
+    signal.signal(signal.SIGTERM, _on_term)
+    try:
+        cfg = load_cfg()
+        user_msg, reply = last_exchange(pathlib.Path(transcript),
+                                        int(cfg["context_cap_chars"]))
+        if not should_speak(reply, cfg):
+            return 0
+        script = generate_script(user_msg, reply, cfg)
+        speak_text(script, cfg)
+        return 0
+    finally:
+        _clear_worker_pidfile()
+
+
+def cancel_mode() -> int:
+    """UserPromptSubmit entry: a new prompt makes pending audio stale."""
+    try:
+        try:
+            pid = int(WORKER_PIDFILE.read_text().strip())
+        except (OSError, ValueError):
+            pid = 0
+        if pid and pid != os.getpid():
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        WORKER_PIDFILE.unlink(missing_ok=True)
+        stop()
+    except Exception:                     # noqa: BLE001 — deliberate
+        pass
     return 0
 
 # A voice's first letter encodes its language, and phonemization must follow the
@@ -749,10 +830,16 @@ def main() -> int:
     ap.add_argument("--project")
     ap.add_argument("--detach", action="store_true")
     ap.add_argument("--hook", action="store_true")
+    ap.add_argument("--cancel", action="store_true")
+    ap.add_argument("--worker", action="store_true")
     args = ap.parse_args()
 
     if args.hook:
         return hook_mode()
+    if args.cancel:
+        return cancel_mode()
+    if args.worker:
+        return worker_mode(args.transcript or "")
     if args.stop:
         stop()
         return 0
@@ -785,11 +872,7 @@ def main() -> int:
     # Claimed before the engine is built, not after: loading a 300MB model or
     # waiting on a cloud voice is exactly the window a second click lands in.
     claim()
-    synth = make_synth(cfg)
-    if synth is None:
-        speak_direct(text, cfg)
-    else:
-        play_chunked(text, cfg, synth)
+    speak_text(text, cfg)
     return 0
 
 
