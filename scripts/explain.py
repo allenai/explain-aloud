@@ -1068,6 +1068,9 @@ def main() -> int:
     ap.add_argument("--set-model", dest="set_model", metavar="ALIAS",
                     help="claude CLI model alias for script generation "
                          "(haiku, sonnet, opus); persisted")
+    ap.add_argument("--set-context", dest="set_context", type=int, metavar="N",
+                    help="how many earlier thread messages go to the prompt "
+                         "as context (0 = none); persisted")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--print", action="store_true", dest="print_only",
                     help="print the generated spoken script, speak nothing")
@@ -1093,6 +1096,11 @@ def main() -> int:
     if args.set_model:
         save_cfg({"model": args.set_model})
         print(f"model set to {args.set_model}")
+        return 0
+    if args.set_context is not None:
+        n = max(0, args.set_context)
+        save_cfg({"context_messages": n})
+        print(f"context set to {n} earlier messages")
         return 0
 
     cfg = load_cfg()

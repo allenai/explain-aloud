@@ -69,6 +69,15 @@ def test_set_model_persists_and_status_shows_it(tmp_path):
     assert "sonnet" in s.stdout
 
 
+def test_set_context_persists(tmp_path):
+    r = _run_cli(tmp_path, "--set-context", "10")
+    assert r.returncode == 0
+    saved = json.loads((tmp_path / "explain-aloud.json").read_text())
+    assert saved["context_messages"] == 10
+    r2 = _run_cli(tmp_path, "--set-context", "0")
+    assert json.loads((tmp_path / "explain-aloud.json").read_text())["context_messages"] == 0
+
+
 def test_status_warns_when_read_aloud_auto_read_on(tmp_path):
     (tmp_path / "read-aloud.json").write_text(json.dumps({"auto_read": True}))
     r = _run_cli(tmp_path, "--status")
