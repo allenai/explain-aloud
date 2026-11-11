@@ -82,49 +82,56 @@ export const register: Register = on => {
     const run = (args: string[]) =>
       $.process.run(['python3', script, ...args])
 
-    const stopButton = (
-      <Button
-        key="stop"
-        label="⏹ Stop"
-        onPress={async () => {
-          await run(['--cancel'])
-          await update($, isPaused, () => false)
-          await update($, status, () => ({ phase: '', text: '' }) as Status)
-        }}
-      />
-    )
+    // No disabled prop exists on Button: an inapplicable button is drawn dim
+    // and its press does nothing, so the row never changes shape.
+    const canExplain = st.phase === ''
+    const canControl = st.phase === 'speaking'
+    const canStop = st.phase !== ''
 
     return (
       <Box>
         <Text dimColor>explain-aloud </Text>
-        {st.phase === '' && (
-          <Button
-            key="explain"
-            label="🎙️ Explain"
-            onPress={async () => {
-              await update($, isPaused, () => false)
-              await update($, status, () =>
-                ({ phase: 'generating', text: '🧠 writing script…' }) as Status)
-              await run(['--worker', '--force', '--project', cwd, '--detach'])
-            }}
-          />
-        )}
-        {st.phase === 'speaking' && (
-          <Button key="back" label="⏪ 5s" onPress={() => run(['--back', '5'])} />
-        )}
-        {st.phase === 'speaking' && (
-          <Button
-            key="pause"
-            label={paused ? '▶ Resume' : '⏸ Pause'}
-            onPress={async () => {
-              const wantPause = !paused
-              await run([wantPause ? '--pause' : '--resume'])
-              await update($, isPaused, () => wantPause)
-            }}
-          />
-        )}
-        {st.phase !== '' && stopButton}
-        {st.text !== '' && <Text dimColor> {st.text}</Text>}
+        <Button
+          key="explain"
+          label="🎙️ Explain"
+          dimColor={!canExplain}
+          onPress={async () => {
+            if (!canExplain) return
+            await update($, isPaused, () => false)
+            await update($, status, () =>
+              ({ phase: 'generating', text: '🧠 writing script…' }) as Status)
+            await run(['--worker', '--force', '--project', cwd, '--detach'])
+          }}
+        />
+        <Text dimColor> {(st.text || '').padEnd(22)}</Text>
+        <Button
+          key="back"
+          label="⏪ 5s"
+          dimColor={!canControl}
+          onPress={() => (canControl ? run(['--back', '5']) : undefined)}
+        />
+        <Button
+          key="pause"
+          label={paused ? '▶ Resume' : '⏸ Pause'}
+          dimColor={!canControl}
+          onPress={async () => {
+            if (!canControl) return
+            const wantPause = !paused
+            await run([wantPause ? '--pause' : '--resume'])
+            await update($, isPaused, () => wantPause)
+          }}
+        />
+        <Button
+          key="stop"
+          label="⏹ Stop"
+          dimColor={!canStop}
+          onPress={async () => {
+            if (!canStop) return
+            await run(['--cancel'])
+            await update($, isPaused, () => false)
+            await update($, status, () => ({ phase: '', text: '' }) as Status)
+          }}
+        />
       </Box>
     )
   })
