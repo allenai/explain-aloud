@@ -197,6 +197,7 @@ EA_DEFAULTS = {
     "auto_min_bullets": 6,      # auto mode: bullet count signal
     "context_messages": 6,      # earlier messages sent as prompt context
     "history_cap_chars": 3000,  # cap on that history block
+    "language": "english",      # spoken-script language; needs a TTS voice for it
 }
 
 
@@ -224,6 +225,11 @@ def load_cfg() -> dict:
     own = _read_json(config_path())
     for key in EA_DEFAULTS:
         if key in own:
+            cfg[key] = own[key]
+    # Voice override set by --set-language: lets explain-aloud speak through a
+    # different provider without touching read-aloud's config (and voice).
+    for key in ("provider", "voice"):
+        if own.get(key):
             cfg[key] = own[key]
     return cfg
 
@@ -415,7 +421,7 @@ Content:
 - Length proportional to the reply: at most {max_speech_words} words; a short
   reply gets two or three sentences.
 
-Output ONLY the words to be spoken. No preamble, no quotes, nothing else.
+{language_block}Output ONLY the words to be spoken. No preamble, no quotes, nothing else.
 
 {history_block}The user's question was:
 {user_msg}
@@ -431,10 +437,27 @@ the reply below, not this history):
 
 """
 
+LANGUAGE_BLOCK = """\
+Language:
+- Write the ENTIRE spoken script in {language}. Natural, native phrasing — a
+  colleague who thinks in {language}, not a translation. Keep code
+  identifiers, tool names and technical terms in English where a
+  {language}-speaking developer would say them in English.
+
+"""
+
+
+def script_language(cfg: dict) -> str:
+    """The non-English target language, or "" when the script stays English."""
+    lang = str(cfg.get("language", "") or "").strip()
+    return "" if lang.lower() in ("", "english", "en") else lang
+
 
 def build_prompt(user_msg: str, reply: str, cfg: dict, history: str = "") -> str:
+    lang = script_language(cfg)
     return PROMPT_TEMPLATE.format(
         max_speech_words=int(cfg.get("max_speech_words", 250)),
+        language_block=LANGUAGE_BLOCK.format(language=lang.capitalize()) if lang else "",
         history_block=HISTORY_BLOCK.format(history=history) if history else "",
         user_msg=user_msg or "(not available)",
         reply=reply)
@@ -642,12 +665,18 @@ def make_synth(cfg: dict):
     if provider == "elevenlabs":
         key = api_key(cfg, "elevenlabs")
         voice = cfg["voice"] or "21m00Tcm4TlvDq8ikWAM"      # Rachel (premade)
+        # ElevenLabs' default model is English-only; a non-English script needs
+        # a multilingual one. tts_model (read-aloud's "model" key) wins if set.
+        model = cfg.get("tts_model") or ("eleven_v3" if script_language(cfg) else "")
 
         def synth(text: str, out: pathlib.Path) -> None:
+            payload = {"text": text}
+            if model:
+                payload["model_id"] = model
             pcm = http_json(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
                 "?output_format=pcm_22050",
-                {"text": text},
+                payload,
                 {"xi-api-key": key})
             wrap_pcm(pcm, out)
         return synth
@@ -1022,6 +1051,46 @@ def kokoro_lang(voice: str) -> str:
     return KOKORO_LANGS.get((voice or "a")[:1], ("en-us", ""))[0]
 
 
+MULTILINGUAL_PROVIDERS = ("elevenlabs", "openai", "speechify", "command")
+EL_DEFAULT_VOICE = "EXAVITQu4vr4xnSDxMaL"   # Sarah — premade, free-tier OK
+
+
+def _has_key(cfg: dict, provider: str) -> bool:
+    return bool(os.environ.get(f"{provider.upper()}_API_KEY")
+                or cfg.get("api_keys", {}).get(provider))
+
+
+def set_language(raw: str) -> int:
+    """Persist the language; for a non-English one, also pick a TTS provider
+    that can speak it (stored as an override in our config — read-aloud's
+    file and voice are never touched)."""
+    lang = raw.strip().lower()
+    if lang in ("english", "en"):
+        save_cfg({"language": "english", "provider": "", "voice": ""})
+        print("language set to english (voice back to read-aloud's config)")
+        return 0
+    cfg = load_cfg()
+    updates = {"language": lang}
+    if cfg["provider"] in MULTILINGUAL_PROVIDERS:
+        print(f"language set to {lang} — spoken by {cfg['provider']}")
+    elif _has_key(cfg, "elevenlabs"):
+        updates.update({"provider": "elevenlabs", "voice": EL_DEFAULT_VOICE})
+        print(f"language set to {lang} — explanations will speak through "
+              "elevenlabs (best multilingual voice); read-aloud keeps its own "
+              "voice for everything else")
+    elif _has_key(cfg, "openai"):
+        updates.update({"provider": "openai", "voice": "nova"})
+        print(f"language set to {lang} — explanations will speak through "
+              "openai tts; read-aloud keeps its own voice for everything else")
+    else:
+        print(f"language set to {lang} — but the current voice "
+              f"({cfg['provider']}) can't speak it and no elevenlabs/openai "
+              f"API key was found. Add one under api_keys in "
+              f"{ra_config_path()} and rerun this command.")
+    save_cfg(updates)
+    return 0
+
+
 def show_status(cfg: dict) -> int:
     print(f"config    : {config_path()}")
     print(f"mode      : {cfg['mode']}")
@@ -1032,6 +1101,10 @@ def show_status(cfg: dict) -> int:
     print(f"voice     : {cfg['provider']}"
           + (f" / {cfg['voice']}" if cfg["voice"] else " (default)")
           + f" @ {cfg['speed']}  (from {ra_config_path()})")
+    print(f"language  : {cfg.get('language') or 'english'}")
+    if script_language(cfg) and cfg["provider"] == "kokoro":
+        print("WARNING   : kokoro has no voice for that language — set "
+              "provider elevenlabs or openai in read-aloud's config.")
     print(f"control   : {'mpv available — pause/resume/back work' if _which('mpv') else 'mpv NOT installed — no pause/resume/back'}")
     if cfg.get("ra_auto_read"):
         print("WARNING   : read-aloud's auto_read is ON — explain-aloud skips "
@@ -1068,6 +1141,9 @@ def main() -> int:
     ap.add_argument("--set-model", dest="set_model", metavar="ALIAS",
                     help="claude CLI model alias for script generation "
                          "(haiku, sonnet, opus); persisted")
+    ap.add_argument("--set-language", dest="set_language", metavar="LANG",
+                    help="spoken-script language (english resets; needs a "
+                         "TTS voice that speaks it, e.g. elevenlabs)")
     ap.add_argument("--set-context", dest="set_context", type=int, metavar="N",
                     help="how many earlier thread messages go to the prompt "
                          "as context (0 = none); persisted")
@@ -1102,6 +1178,8 @@ def main() -> int:
         save_cfg({"context_messages": n})
         print(f"context set to {n} earlier messages")
         return 0
+    if args.set_language:
+        return set_language(args.set_language)
 
     cfg = load_cfg()
 

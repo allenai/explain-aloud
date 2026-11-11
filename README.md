@@ -76,6 +76,7 @@ skips speaking rather than letting two voices race.
 | `/explain-aloud:mode always\|auto\|off` | when to speak (default: off = on-demand) |
 | `/explain-aloud:model haiku\|sonnet\|opus` | which model writes the explanation (default haiku; bigger = better, slower) |
 | `/explain-aloud:context N` | how many earlier thread messages feed the explanation (default 6, 0 = none) |
+| `/explain-aloud:language L` | speak explanations in another language, e.g. `hebrew` (`english` resets) |
 | `/explain-aloud:status` | current config + warnings |
 | `/explain-aloud:stop` | stop/cancel current explanation |
 | `/explain-aloud:pause` / `resume` | pause / resume (needs mpv) |
@@ -96,9 +97,23 @@ skips speaking rather than letting two voices race.
 | `history_cap_chars` | `3000` | cap on that history block |
 | `auto_min_chars` | `700` | auto mode: prose length trigger |
 | `auto_min_bullets` | `6` | auto mode: bullet count trigger |
+| `language` | `"english"` | spoken-script language (set via the command) |
+| `provider` / `voice` | — | TTS override, written by `/explain-aloud:language`; empty = use read-aloud's |
 
 Voice, provider and speed are read from read-aloud's config
 (`~/.config/claude-read-aloud/config.json`) so the voice is picked in one place.
+
+### Other languages (e.g. Hebrew)
+
+`/explain-aloud:language hebrew` makes the explanations spoken Hebrew. The
+local Kokoro voice can't speak it, so the command automatically routes
+explain-aloud's own speech through a cloud voice — ElevenLabs (best, needs
+`api_keys.elevenlabs` in read-aloud's config; free tier ≈ a handful of
+explanations a month) or OpenAI TTS (`api_keys.openai`, ~1¢ per explanation)
+— while read-aloud itself keeps its usual voice. With ElevenLabs the
+Hebrew-capable `eleven_v3` model is selected automatically. No key configured?
+The command tells you exactly what to add. `/explain-aloud:language english`
+switches everything back.
 
 ## How it works
 
