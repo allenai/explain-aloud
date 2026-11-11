@@ -60,6 +60,15 @@ def test_mode_flag_persists(tmp_path):
     assert saved["mode"] == "auto"
 
 
+def test_set_model_persists_and_status_shows_it(tmp_path):
+    r = _run_cli(tmp_path, "--set-model", "sonnet")
+    assert r.returncode == 0
+    saved = json.loads((tmp_path / "explain-aloud.json").read_text())
+    assert saved["model"] == "sonnet"
+    s = _run_cli(tmp_path, "--status")
+    assert "sonnet" in s.stdout
+
+
 def test_status_warns_when_read_aloud_auto_read_on(tmp_path):
     (tmp_path / "read-aloud.json").write_text(json.dumps({"auto_read": True}))
     r = _run_cli(tmp_path, "--status")

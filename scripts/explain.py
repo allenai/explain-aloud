@@ -927,6 +927,9 @@ def main() -> int:
                          "supported")
     ap.add_argument("--mode", choices=["always", "auto", "off"],
                     help="when explanations speak; persisted")
+    ap.add_argument("--set-model", dest="set_model", metavar="ALIAS",
+                    help="claude CLI model alias for script generation "
+                         "(haiku, sonnet, opus); persisted")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--print", action="store_true", dest="print_only",
                     help="print the generated spoken script, speak nothing")
@@ -948,6 +951,10 @@ def main() -> int:
     if args.mode:
         save_cfg({"mode": args.mode})
         print(f"mode set to {args.mode}")
+        return 0
+    if args.set_model:
+        save_cfg({"model": args.set_model})
+        print(f"model set to {args.set_model}")
         return 0
 
     cfg = load_cfg()

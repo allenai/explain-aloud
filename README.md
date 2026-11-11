@@ -54,6 +54,7 @@ skips speaking rather than letting two voices race.
 |---|---|
 | `/explain-aloud:explain` | explain the last reply now |
 | `/explain-aloud:mode always\|auto\|off` | when to speak (default: off = on-demand) |
+| `/explain-aloud:model haiku\|sonnet\|opus` | which model writes the explanation (default haiku; bigger = better, slower) |
 | `/explain-aloud:status` | current config + warnings |
 | `/explain-aloud:stop` | stop/cancel current explanation |
 | `/explain-aloud:pause` / `resume` | pause / resume (needs mpv) |
