@@ -60,6 +60,30 @@ def worker_pidfile() -> pathlib.Path:
     return WORKER_PID_DIR / f"claude-explain-aloud-worker-{os.getpid()}.pid"
 # mpv's IPC socket: pause/resume/seek talk to whichever chunk is playing.
 MPV_SOCKET = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-mpv.sock"
+# Progress for UIs: {"phase": "generating", "started": ts} while the model
+# writes the script, {"phase": "speaking", "done": chars, "total": chars}
+# per chunk while audio plays; absent when nothing is happening.
+STATUS_FILE = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-status.json"
+
+
+def write_status(**d) -> None:
+    try:
+        STATUS_FILE.write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def clear_status() -> None:
+    try:
+        STATUS_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _speaking_status(chunks: list, i: int) -> dict:
+    return {"phase": "speaking",
+            "done": sum(len(c) for c in chunks[:i]),
+            "total": sum(len(c) for c in chunks)}
 
 FALLBACK_LINE = "Couldn't prepare an explanation — the answer is on screen."
 
@@ -618,6 +642,7 @@ def speak_direct(text: str, cfg: dict) -> None:
 
     global _player
     claim()
+    write_status(phase="speaking", done=0, total=len(text))
     _player = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, **quiet_win())
     _player.wait()
@@ -690,6 +715,7 @@ def release() -> None:
             part.unlink(missing_ok=True)
         except OSError:
             pass
+    clear_status()
 
 
 def _on_term(_sig=None, _frm=None):
@@ -728,6 +754,7 @@ def play_chunked(text: str, cfg: dict, synth) -> None:
     chunks = chunk_text(text, int(cfg["first_chars"]), int(cfg["chunk_chars"]))
     synth(chunks[0], PARTS[0])
     for i in range(len(chunks)):
+        write_status(**_speaking_status(chunks, i))
         cur = PARTS[i % 2]
         _player = subprocess.Popen(
             player_cmd(cur), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -810,11 +837,13 @@ def worker_mode(transcript: str, force: bool = False) -> int:
                 return 0
         elif not should_speak(reply, cfg):
             return 0
+        write_status(phase="generating", started=time.time())
         script = generate_script(user_msg, reply, cfg)
         speak_text(script, cfg)
         return 0
     finally:
         _clear_worker_pidfile()
+        clear_status()
 
 
 def ipc_payload(action: str, seconds: float = 10) -> dict:
@@ -859,6 +888,7 @@ def cancel_mode() -> int:
                     pass
             f.unlink(missing_ok=True)
         stop()
+        clear_status()
     except Exception:                     # noqa: BLE001 — deliberate
         pass
     return 0
