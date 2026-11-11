@@ -4,6 +4,9 @@
 >
 > Thirty seconds, sound on: a mock Claude chat that explains this plugin's
 > motivation the way the plugin would — out loud, with the real buttons.
+>
+> Just want the audio? **[▶️ Play the 30-second pitch](assets/pitch.wav)**
+> (GitHub opens it with a player — one click, then press play.)
 
 A Claude Code plugin that **explains replies aloud like a teacher** instead of
 reading them verbatim. After each qualifying reply, a cheap model (`claude -p
