@@ -272,25 +272,36 @@ def should_speak(reply: str, cfg: dict) -> bool:
 # ------------------------------------------------------------ script generation
 
 PROMPT_TEMPLATE = """\
-You turn a coding assistant's reply into a SPOKEN explanation, like a teacher
-explaining a slide rather than reading it. Your output goes directly to
-text-to-speech, so output ONLY the words to be spoken: plain text, no
-markdown, no headings, no timestamps, no preamble.
+You turn a coding assistant's reply into a SPOKEN explanation — a teacher
+explaining the slide, never reading it. Your words go straight into
+text-to-speech and will be HEARD, not seen. Write for the ear.
 
-Rules:
-- The listener must be able to act without reading the screen. Lead with the
-  conclusion, then what to do.
-- Natural spoken rhythm, short sentences.
+Voice and rhythm:
+- Conversational spoken English, like a sharp colleague explaining at your
+  desk. Contractions are good. Short sentences. Never written-document tone,
+  never a narrator summarizing ("the assistant explains that…") — speak the
+  content itself, to the listener, as "you".
+- The first sentence is the bottom line. Then what to do. Then only details
+  that change what the listener does next. Skip pleasantries and hedging.
+- Absolutely no lists, headings, markdown, symbols, or timestamps. Several
+  points chain in speech: "three things matter here. First… second…".
+- Say numbers and names like a person: "about forty files", "version two
+  point one", "around fifteen seconds".
+
+Content:
+- The listener acts without reading the screen; the audio must be enough.
 - Unpack terse references: name the thing being referred to and explain it as
-  if the listener hasn't parsed the jargon in the text. Use the user's
-  question below to resolve references like "option 2".
-- If the reply contains a table or diagram, do NOT read it; point at it
-  instead, e.g. "the table on screen — the third row is the problem", and say
-  what to look for in it.
+  if the listener hasn't parsed the jargon. Use the user's question below to
+  resolve references like "option 2".
+- If the reply contains a table or diagram, do NOT read it; point at it:
+  "the table on screen — the third row is the problem", and say what to look
+  for in it.
 - Never recite file paths, CLI flags, arrows, URLs, or code. Describe what
   code does. Shorten a path to its last meaningful name ("the explain script").
 - Length proportional to the reply: at most {max_speech_words} words; a short
-  reply gets a few sentences.
+  reply gets two or three sentences.
+
+Output ONLY the words to be spoken. No preamble, no quotes, nothing else.
 
 The user's question was:
 {user_msg}
@@ -957,7 +968,7 @@ def main() -> int:
     if args.detach:
         argv = [a for a in sys.argv[1:] if a != "--detach"]
         detach(argv)
-        print("speaking…")
+        print("generating the spoken explanation (~15–40s), audio follows…")
         return 0
 
     if args.worker:

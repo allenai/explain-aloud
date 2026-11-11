@@ -2,7 +2,7 @@
 description: Explain Claude's last reply aloud, teacher-style (not a verbatim read-out)
 ---
 
-Run exactly this one bash command, then reply with "🎙️ explaining aloud":
+Run exactly this one bash command, then reply with "🎙️ explaining aloud — generating the spoken script takes about 15–40 seconds, audio follows":
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/explain.py" --worker --force --project "$(pwd)" --detach
