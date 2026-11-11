@@ -26,6 +26,7 @@ import pathlib
 import re
 import shlex
 import signal
+import socket
 import struct
 import subprocess
 import sys
@@ -50,6 +51,8 @@ PART_GLOB = "claude-explain-aloud-*-[01].wav"
 # The worker (generation + playback) registers here so a new user prompt can
 # cancel it even while it is still waiting on the model, before any claim().
 WORKER_PIDFILE = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-worker.pid"
+# mpv's IPC socket: pause/resume/seek talk to whichever chunk is playing.
+MPV_SOCKET = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-mpv.sock"
 
 FALLBACK_LINE = "Couldn't prepare an explanation — the answer is on screen."
 
@@ -446,6 +449,10 @@ def quiet_win() -> dict:
 
 
 def player_cmd(wav: pathlib.Path) -> list[str]:
+    # mpv first, everywhere: its IPC socket is what makes pause/seek possible.
+    if _which("mpv"):
+        return ["mpv", "--really-quiet", "--no-video",
+                f"--input-ipc-server={MPV_SOCKET}", str(wav)]
     if IS_MAC:
         return ["afplay", str(wav)]
     if IS_WIN:
@@ -644,6 +651,10 @@ def claim() -> None:
     PIDFILE.write_text(str(os.getpid()))
     signal.signal(signal.SIGTERM, _on_term)
     _sweep_parts()
+    try:                                  # a dead reading's socket is stale
+        MPV_SOCKET.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def release() -> None:
@@ -781,6 +792,31 @@ def worker_mode(transcript: str) -> int:
         _clear_worker_pidfile()
 
 
+def ipc_payload(action: str, seconds: float = 10) -> dict:
+    """One mpv IPC command: pause, resume, or seek back within the chunk."""
+    if action == "pause":
+        return {"command": ["set_property", "pause", True]}
+    if action == "resume":
+        return {"command": ["set_property", "pause", False]}
+    return {"command": ["seek", -abs(seconds), "relative"]}
+
+
+def control_mode(action: str, seconds: float = 10) -> int:
+    """Send one control command to the playing mpv. Always exits 0."""
+    if not MPV_SOCKET.exists():
+        print("explain-aloud: nothing is playing (pause/resume/back need the "
+              "mpv player — install mpv if it is missing)")
+        return 0
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            s.connect(str(MPV_SOCKET))
+            s.sendall((json.dumps(ipc_payload(action, seconds)) + "\n").encode())
+    except OSError as e:
+        print(f"explain-aloud: control failed: {e}", file=sys.stderr)
+    return 0
+
+
 def cancel_mode() -> int:
     """UserPromptSubmit entry: a new prompt makes pending audio stale."""
     try:
@@ -832,6 +868,15 @@ def main() -> int:
     ap.add_argument("--hook", action="store_true")
     ap.add_argument("--cancel", action="store_true")
     ap.add_argument("--worker", action="store_true")
+    ap.add_argument("--pause", action="store_true",
+                    help="pause the explanation being spoken")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume a paused explanation")
+    ap.add_argument("--back", nargs="?", const=10.0, type=float, default=None,
+                    metavar="SECONDS",
+                    help="seek back (default 10s) within the current audio "
+                         "chunk; rewinding across chunk boundaries is not "
+                         "supported")
     args = ap.parse_args()
 
     if args.hook:
@@ -840,6 +885,12 @@ def main() -> int:
         return cancel_mode()
     if args.worker:
         return worker_mode(args.transcript or "")
+    if args.pause:
+        return control_mode("pause")
+    if args.resume:
+        return control_mode("resume")
+    if args.back is not None:
+        return control_mode("back", args.back)
     if args.stop:
         stop()
         return 0
