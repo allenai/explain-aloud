@@ -29,7 +29,7 @@ def test_worker_writes_then_clears_status(tmp_path, monkeypatch):
                                  "mode": "always"})
     seen = {}
 
-    def fake_generate(user_msg, reply, cfg):
+    def fake_generate(user_msg, reply, cfg, history=""):
         seen["status"] = json.loads(status.read_text())
         return "spoken script"
 

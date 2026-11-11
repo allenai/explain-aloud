@@ -195,6 +195,8 @@ EA_DEFAULTS = {
     "context_cap_chars": 4000,  # user-message context cap
     "auto_min_chars": 700,      # auto mode: prose length signal
     "auto_min_bullets": 6,      # auto mode: bullet count signal
+    "context_messages": 6,      # earlier messages sent as prompt context
+    "history_cap_chars": 3000,  # cap on that history block
 }
 
 
@@ -328,6 +330,41 @@ def last_exchange(path: pathlib.Path, cap: int) -> tuple[str, str]:
     return user_msg[:cap], reply
 
 
+def recent_exchanges(path: pathlib.Path, k: int, cap: int) -> str:
+    """The last k text messages BEFORE the final user/assistant pair, as
+    'User: …' / 'Assistant: …' lines, each message truncated, whole block
+    capped — context so terse references in the reply resolve."""
+    if k <= 0:
+        return ""
+    msgs: list = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(e, dict) or not isinstance(e.get("message"), dict):
+            continue
+        text = _entry_text(e).strip()
+        role = e.get("type")
+        if text and role in ("user", "assistant"):
+            msgs.append(("User" if role == "user" else "Assistant", text))
+    # Drop the final exchange: it is passed to the prompt separately.
+    while msgs and msgs[-1][0] == "Assistant":
+        msgs.pop()
+    if msgs:
+        msgs.pop()                        # the final user message
+    out: list = []
+    for role, text in msgs[-k:]:
+        out.append(f"{role}: {text[:500]}")
+    return "\n".join(out)[-cap:] if cap > 0 else ""
+
+
 def should_speak(reply: str, cfg: dict) -> bool:
     """Trigger check: off/always, or auto's any-signal-fires heuristic."""
     mode = cfg.get("mode", "always")
@@ -380,17 +417,25 @@ Content:
 
 Output ONLY the words to be spoken. No preamble, no quotes, nothing else.
 
-The user's question was:
+{history_block}The user's question was:
 {user_msg}
 
 The assistant's reply to explain:
 {reply}
 """
 
+HISTORY_BLOCK = """\
+Earlier conversation (context only — resolve references with it, but explain
+the reply below, not this history):
+{history}
 
-def build_prompt(user_msg: str, reply: str, cfg: dict) -> str:
+"""
+
+
+def build_prompt(user_msg: str, reply: str, cfg: dict, history: str = "") -> str:
     return PROMPT_TEMPLATE.format(
         max_speech_words=int(cfg.get("max_speech_words", 250)),
+        history_block=HISTORY_BLOCK.format(history=history) if history else "",
         user_msg=user_msg or "(not available)",
         reply=reply)
 
@@ -407,7 +452,7 @@ def sanitize_script(s: str) -> str:
     return s
 
 
-def generate_script(user_msg: str, reply: str, cfg: dict) -> str:
+def generate_script(user_msg: str, reply: str, cfg: dict, history: str = "") -> str:
     """Spoken script via headless claude CLI. Never raises; FALLBACK_LINE on
     any failure — silence would hide breakage, verbatim would defeat the point."""
     env = dict(os.environ)
@@ -418,7 +463,7 @@ def generate_script(user_msg: str, reply: str, cfg: dict) -> str:
             # keeping the headless call cheap and fast.
             ["claude", "-p", "--model", str(cfg.get("model", "haiku")),
              "--strict-mcp-config"],
-            input=build_prompt(user_msg, reply, cfg),
+            input=build_prompt(user_msg, reply, cfg, history),
             capture_output=True, text=True, env=env,
             timeout=float(cfg.get("timeout_s", 60)), **quiet_win())
         if getattr(r, "returncode", 1) != 0:
@@ -898,7 +943,10 @@ def worker_mode(transcript: str, force: bool = False) -> int:
         elif not should_speak(reply, cfg):
             return 0
         write_status(phase="generating", started=time.time())
-        script = generate_script(user_msg, reply, cfg)
+        history = recent_exchanges(pathlib.Path(transcript),
+                                   int(cfg.get("context_messages", 6)),
+                                   int(cfg.get("history_cap_chars", 3000)))
+        script = generate_script(user_msg, reply, cfg, history)
         speak_text(script, cfg)
         return 0
     finally:
@@ -1010,9 +1058,9 @@ def main() -> int:
                     help="pause the explanation being spoken")
     ap.add_argument("--resume", action="store_true",
                     help="resume a paused explanation")
-    ap.add_argument("--back", nargs="?", const=10.0, type=float, default=None,
+    ap.add_argument("--back", nargs="?", const=5.0, type=float, default=None,
                     metavar="SECONDS",
-                    help="seek back (default 10s) within the current audio "
+                    help="seek back (default 5s) within the current audio "
                          "chunk; rewinding across chunk boundaries is not "
                          "supported")
     ap.add_argument("--mode", choices=["always", "auto", "off"],

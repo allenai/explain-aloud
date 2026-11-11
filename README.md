@@ -78,7 +78,7 @@ skips speaking rather than letting two voices race.
 | `/explain-aloud:status` | current config + warnings |
 | `/explain-aloud:stop` | stop/cancel current explanation |
 | `/explain-aloud:pause` / `resume` | pause / resume (needs mpv) |
-| `/explain-aloud:back [s]` | seek back, default 10s (needs mpv) |
+| `/explain-aloud:back [s]` | seek back, default 5s (needs mpv) |
 
 ## Config
 
@@ -91,6 +91,8 @@ skips speaking rather than letting two voices race.
 | `timeout_s` | `60` | generation timeout; on failure one fixed line is spoken |
 | `max_speech_words` | `250` | word budget for the spoken script |
 | `context_cap_chars` | `4000` | how much of your question is sent for context |
+| `context_messages` | `6` | earlier thread messages sent as context (0 = off) |
+| `history_cap_chars` | `3000` | cap on that history block |
 | `auto_min_chars` | `700` | auto mode: prose length trigger |
 | `auto_min_bullets` | `6` | auto mode: bullet count trigger |
 

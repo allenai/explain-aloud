@@ -1,8 +1,8 @@
 ---
-description: Seek the spoken explanation back a few seconds (default 10)
+description: Seek the spoken explanation back a few seconds (default 5)
 ---
 
-The user may pass a number of seconds (default 10). Run:
+The user may pass a number of seconds (default 5). Run:
 
 ```
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/explain.py" --back <seconds-or-nothing>

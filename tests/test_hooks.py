@@ -117,7 +117,7 @@ def _worker_fixture(tmp_path, monkeypatch, reply="the answer"):
     monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
     spoken = []
     monkeypatch.setattr(explain, "generate_script",
-                        lambda user_msg, reply, cfg: "spoken script")
+                        lambda user_msg, reply, cfg, history="": "spoken script")
     monkeypatch.setattr(explain, "speak_text", lambda text, cfg: spoken.append(text))
     return t, spoken
 
@@ -131,7 +131,7 @@ def test_worker_writes_own_pid_file_before_generation(tmp_path, monkeypatch):
     pidfile = tmp_path / f"claude-explain-aloud-worker-{explain.os.getpid()}.pid"
     seen = {}
 
-    def fake_generate(user_msg, reply, cfg):
+    def fake_generate(user_msg, reply, cfg, history=""):
         seen["pidfile_during_generation"] = pidfile.exists()
         return "spoken script"
 
