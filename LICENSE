@@ -1,6 +1,7 @@
 MIT License
 
-Copyright (c) 2026 Michael Gifford
+Copyright (c) 2026 Aryeh (explain-aloud)
+Portions copyright (c) 2026 Michael Gifford (vendored read-aloud TTS core)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
