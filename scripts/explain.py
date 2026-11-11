@@ -48,9 +48,16 @@ PIDFILE = pathlib.Path(tempfile.gettempdir()) / "claude-read-aloud.pid"
 PARTS = [pathlib.Path(tempfile.gettempdir()) / f"claude-explain-aloud-{os.getpid()}-{i}.wav"
          for i in (0, 1)]
 PART_GLOB = "claude-explain-aloud-*-[01].wav"
-# The worker (generation + playback) registers here so a new user prompt can
-# cancel it even while it is still waiting on the model, before any claim().
-WORKER_PIDFILE = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-worker.pid"
+# Each worker (generation + playback) registers its own pid file so a new user
+# prompt can cancel it even while it waits on the model, before any claim() —
+# per-pid files, because sessions run concurrently machine-wide and one shared
+# file would let a stale worker escape cancellation and claim later.
+WORKER_PID_DIR = pathlib.Path(tempfile.gettempdir())
+WORKER_PID_GLOB = "claude-explain-aloud-worker-*.pid"
+
+
+def worker_pidfile() -> pathlib.Path:
+    return WORKER_PID_DIR / f"claude-explain-aloud-worker-{os.getpid()}.pid"
 # mpv's IPC socket: pause/resume/seek talk to whichever chunk is playing.
 MPV_SOCKET = pathlib.Path(tempfile.gettempdir()) / "claude-explain-aloud-mpv.sock"
 
@@ -319,7 +326,10 @@ def generate_script(user_msg: str, reply: str, cfg: dict) -> str:
     env["EXPLAIN_ALOUD_CHILD"] = "1"    # our own Stop hook must ignore this run
     try:
         r = subprocess.run(
-            ["claude", "-p", "--model", str(cfg.get("model", "haiku"))],
+            # --strict-mcp-config with no --mcp-config: zero MCP servers load,
+            # keeping the headless call cheap and fast.
+            ["claude", "-p", "--model", str(cfg.get("model", "haiku")),
+             "--strict-mcp-config"],
             input=build_prompt(user_msg, reply, cfg),
             capture_output=True, text=True, env=env,
             timeout=float(cfg.get("timeout_s", 60)), **quiet_win())
@@ -683,9 +693,8 @@ def _on_term(_sig=None, _frm=None):
 
 def _clear_worker_pidfile() -> None:
     try:
-        if WORKER_PIDFILE.read_text().strip() == str(os.getpid()):
-            WORKER_PIDFILE.unlink(missing_ok=True)
-    except (OSError, ValueError):
+        worker_pidfile().unlink(missing_ok=True)
+    except OSError:
         pass
 
 
@@ -767,15 +776,17 @@ def hook_mode() -> int:
     return 0
 
 
-def worker_mode(transcript: str) -> int:
+def worker_mode(transcript: str, force: bool = False) -> int:
     """Detached pipeline: extract → trigger → generate → speak.
 
     The worker pidfile is written BEFORE generation and claim() happens only
     at speak time — a new prompt cancels a stale worker via the pidfile, so a
     slow generation can never claim over a newer reply's explanation.
+    `force` (the explicit /explain command) bypasses the mode gate; only an
+    empty reply still stays silent.
     """
     try:
-        WORKER_PIDFILE.write_text(str(os.getpid()))
+        worker_pidfile().write_text(str(os.getpid()))
     except OSError:
         pass
     signal.signal(signal.SIGTERM, _on_term)
@@ -783,7 +794,10 @@ def worker_mode(transcript: str) -> int:
         cfg = load_cfg()
         user_msg, reply = last_exchange(pathlib.Path(transcript),
                                         int(cfg["context_cap_chars"]))
-        if not should_speak(reply, cfg):
+        if force:
+            if not reply.strip():
+                return 0
+        elif not should_speak(reply, cfg):
             return 0
         script = generate_script(user_msg, reply, cfg)
         speak_text(script, cfg)
@@ -820,16 +834,19 @@ def control_mode(action: str, seconds: float = 10) -> int:
 def cancel_mode() -> int:
     """UserPromptSubmit entry: a new prompt makes pending audio stale."""
     try:
-        try:
-            pid = int(WORKER_PIDFILE.read_text().strip())
-        except (OSError, ValueError):
-            pid = 0
-        if pid and pid != os.getpid():
+        if os.environ.get("EXPLAIN_ALOUD_CHILD"):
+            return 0    # our own claude -p child must not cancel its parent
+        for f in WORKER_PID_DIR.glob(WORKER_PID_GLOB):
             try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
-        WORKER_PIDFILE.unlink(missing_ok=True)
+                pid = int(f.read_text().strip())
+            except (OSError, ValueError):
+                pid = 0
+            if pid and pid != os.getpid():
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+            f.unlink(missing_ok=True)
         stop()
     except Exception:                     # noqa: BLE001 — deliberate
         pass
@@ -886,6 +903,8 @@ def main() -> int:
     ap.add_argument("--hook", action="store_true")
     ap.add_argument("--cancel", action="store_true")
     ap.add_argument("--worker", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="with --worker: speak even when mode/thresholds say not to")
     ap.add_argument("--pause", action="store_true",
                     help="pause the explanation being spoken")
     ap.add_argument("--resume", action="store_true",
@@ -946,7 +965,7 @@ def main() -> int:
              else newest_transcript(args.project))
         if not t or not t.exists():
             return 0
-        return worker_mode(str(t))
+        return worker_mode(str(t), force=args.force)
 
     if args.stdin:
         raw = sys.stdin.read()

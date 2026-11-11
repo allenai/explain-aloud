@@ -79,27 +79,55 @@ def test_hook_detaches_worker_with_transcript_path(tmp_path, monkeypatch):
     assert calls == [["--worker", "--transcript", str(t)]]
 
 
-def test_cancel_kills_worker_pidfile_and_playback(tmp_path, monkeypatch):
-    pidfile = tmp_path / "worker.pid"
-    pidfile.write_text("54321")
-    monkeypatch.setattr(explain, "WORKER_PIDFILE", pidfile)
+def test_cancel_kills_all_worker_pidfiles_and_playback(tmp_path, monkeypatch):
+    monkeypatch.delenv("EXPLAIN_ALOUD_CHILD", raising=False)
+    monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
+    (tmp_path / "claude-explain-aloud-worker-54321.pid").write_text("54321")
+    (tmp_path / "claude-explain-aloud-worker-54322.pid").write_text("54322")
     killed = []
-    monkeypatch.setattr(explain.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(explain.os, "kill", lambda pid, sig: killed.append(pid))
     stopped = []
     monkeypatch.setattr(explain, "stop", lambda: stopped.append(True))
     assert explain.cancel_mode() == 0
-    assert killed and killed[0][0] == 54321
+    assert sorted(killed) == [54321, 54322]
     assert stopped == [True]
-    assert not pidfile.exists()
+    assert not list(tmp_path.glob("claude-explain-aloud-worker-*.pid"))
 
 
-def test_worker_writes_pidfile_before_generation(tmp_path, monkeypatch):
+def test_cancel_skips_when_sentinel_env_set(tmp_path, monkeypatch):
+    # The worker's own `claude -p` child loads these hooks too; its
+    # UserPromptSubmit must NOT cancel the very worker waiting on it.
+    monkeypatch.setenv("EXPLAIN_ALOUD_CHILD", "1")
+    monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
+    (tmp_path / "claude-explain-aloud-worker-54321.pid").write_text("54321")
+    killed = []
+    monkeypatch.setattr(explain.os, "kill", lambda pid, sig: killed.append(pid))
+    stopped = []
+    monkeypatch.setattr(explain, "stop", lambda: stopped.append(True))
+    assert explain.cancel_mode() == 0
+    assert killed == [] and stopped == []
+    assert (tmp_path / "claude-explain-aloud-worker-54321.pid").exists()
+
+
+def _worker_fixture(tmp_path, monkeypatch, reply="the answer"):
+    t = tmp_path / "s.jsonl"
+    t.write_text(json.dumps({"type": "assistant",
+                             "message": {"content": [{"type": "text", "text": reply}]}}))
+    monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
+    spoken = []
+    monkeypatch.setattr(explain, "generate_script",
+                        lambda user_msg, reply, cfg: "spoken script")
+    monkeypatch.setattr(explain, "speak_text", lambda text, cfg: spoken.append(text))
+    return t, spoken
+
+
+def test_worker_writes_own_pid_file_before_generation(tmp_path, monkeypatch):
     t = tmp_path / "s.jsonl"
     t.write_text(json.dumps({"type": "assistant",
                              "message": {"content": [{"type": "text", "text": "the answer"}]}}))
-    pidfile = tmp_path / "worker.pid"
-    monkeypatch.setattr(explain, "WORKER_PIDFILE", pidfile)
+    monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
     monkeypatch.setattr(explain, "load_cfg", _cfg)
+    pidfile = tmp_path / f"claude-explain-aloud-worker-{explain.os.getpid()}.pid"
     seen = {}
 
     def fake_generate(user_msg, reply, cfg):
@@ -113,3 +141,19 @@ def test_worker_writes_pidfile_before_generation(tmp_path, monkeypatch):
     assert seen["pidfile_during_generation"] is True
     assert spoken == ["spoken script"]
     assert not pidfile.exists()          # cleaned up on the way out
+
+
+def test_worker_force_overrides_mode_off(tmp_path, monkeypatch):
+    t, spoken = _worker_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(explain, "load_cfg", lambda: _cfg(mode="off"))
+    assert explain.worker_mode(str(t)) == 0
+    assert spoken == []                  # gated as usual without force
+    assert explain.worker_mode(str(t), force=True) == 0
+    assert spoken == ["spoken script"]   # explicit request speaks anyway
+
+
+def test_worker_force_still_skips_empty_reply(tmp_path, monkeypatch):
+    t, spoken = _worker_fixture(tmp_path, monkeypatch, reply="   ")
+    monkeypatch.setattr(explain, "load_cfg", _cfg)
+    assert explain.worker_mode(str(t), force=True) == 0
+    assert spoken == []

@@ -28,6 +28,7 @@ def test_invokes_claude_cli_with_model_and_sentinel(monkeypatch):
     out = explain.generate_script("why?", "because.", _cfg())
     assert out == "The fix is simple."
     assert seen["argv"][:4] == ["claude", "-p", "--model", "haiku"]
+    assert "--strict-mcp-config" in seen["argv"]   # no MCP servers: cheap + fast
     assert seen["env"]["EXPLAIN_ALOUD_CHILD"] == "1"
     assert "because." in seen["input"]
 
