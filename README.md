@@ -12,28 +12,45 @@ low-latency playback. read-aloud stays the place you pick your voice.
 
 ## Install (2 minutes)
 
-In any Claude Code session (desktop app or CLI):
+**Ai2 folks — one click**: add it from the organization's plugin library:
+<https://claude.ai/customize/plugins/plugin_01Jtm4zwTbiWuNwTfFp6pFp3>
+(or in Claude Code: `/plugin` → Marketplaces → add the organization library →
+`/plugin install explain-aloud@claudeai-organization-library`).
+
+From GitHub instead, in any Claude Code session (desktop app or CLI):
 
 ```
 /plugin marketplace add allenai/explain-aloud
 /plugin install explain-aloud@explain-aloud
+```
+
+Either way, finish with:
+
+```
 /read-aloud:voice-setup
 ```
 
-The last command installs the free local neural voice (~340MB one-time
-download) via the read-aloud plugin — install that first from the plugin
-directory if you don't have it (`/plugin install read-aloud`). Optionally
-`sudo apt install mpv` to enable pause/resume/rewind. Restart Claude Code.
+That installs the free local neural voice (~340MB one-time download) via the
+read-aloud plugin — install that first from the plugin directory if you don't
+have it (`/plugin install read-aloud`). Optionally `sudo apt install mpv` to
+enable pause/resume/rewind and the live progress percentage. Restart Claude
+Code.
 
 ## Use
 
 - **`/explain-aloud:explain`** — speak a teacher-style explanation of the last
   reply. Generation takes ~15–40s, then audio starts.
-- **Button lane** (desktop app) — a slim row above the prompt box:
-  🎙️ Explain · ⏪ 5s · ⏸ Pause · ⏹ Stop.
-- Sending a new prompt cancels any pending or playing explanation.
+- **Button lane** (desktop app and terminal) — a slim row above the prompt box:
+  🎙️ Explain · ⏪ 5s · ⏸ Pause · ⏹ Stop, plus a live status at the end of the
+  row: `🧠 writing script… 12s` while the model works, `🔊 64%` during
+  playback. Buttons that don't apply to the current phase are dimmed and
+  inert, so the row never changes shape.
+- Sending a new prompt — or closing the session — cancels any pending or
+  playing explanation.
 - Default mode is on-demand (`off`); `/explain-aloud:mode always|auto` makes it
   speak after every / after long replies.
+- Default voice comes from read-aloud's config (`af_heart` if you followed the
+  setup); change it with `/read-aloud:voice`.
 
 Installing from a local checkout instead: `/plugin marketplace add <path-to-repo>`.
 
@@ -42,8 +59,9 @@ Requirements:
 - The read-aloud plugin's Kokoro voice installed (`/read-aloud:voice-setup`)
   — or any provider configured there; system voice works out of the box.
 - `claude` CLI on PATH (used headless for script generation).
-- `mpv` (optional) — enables pause / resume / seek-back. Without it audio
-  still plays through aplay/paplay, just without controls.
+- `mpv` (optional) — enables pause / resume / seek-back and the playback
+  percentage. Without it audio still plays through aplay/paplay, just without
+  controls.
 
 **read-aloud's `auto_read` must stay off** — explain-aloud detects it and
 skips speaking rather than letting two voices race.
@@ -80,7 +98,14 @@ Voice, provider and speed are read from read-aloud's config
 ## How it works
 
 Stop hook → extract last exchange from the transcript → trigger check →
-`claude -p --model haiku` writes a teacher-style spoken script → chunked TTS
-playback. Detached and hardened: a failure never blocks Claude. Sending a new
-prompt cancels pending generation and playback (UserPromptSubmit hook). A
-sentinel env var keeps the plugin's own headless calls from re-triggering it.
+`claude -p --model haiku` (headless, no MCP servers) writes a teacher-style
+spoken script → chunked TTS playback. Detached and hardened: a failure never
+blocks Claude; on generation failure one fixed line is spoken instead of
+silence. Sending a new prompt cancels pending generation and playback
+(UserPromptSubmit hook), and ending the session does too (SessionEnd hook).
+Workers register per-pid files so concurrent sessions can't strand a stale
+explanation. A sentinel env var keeps the plugin's own headless calls from
+re-triggering its hooks. While running, the worker writes a status file
+(`generating` with a start time, then `speaking` with chars done/total,
+refined every second from mpv's playback position); the button band polls it
+for the live status and percentage.
