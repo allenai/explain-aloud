@@ -1,5 +1,10 @@
 # explain-aloud
 
+> ## [🎙️ &nbsp;TRY ME BEFORE READING&nbsp; →](https://claude.ai/artifact/T1brUMtBHNviEaYJEdDPR7)
+>
+> Thirty seconds, sound on: a mock Claude chat that explains this plugin's
+> motivation the way the plugin would — out loud, with the real buttons.
+
 A Claude Code plugin that **explains replies aloud like a teacher** instead of
 reading them verbatim. After each qualifying reply, a cheap model (`claude -p
 --model haiku`, your subscription) rewrites it into a spoken explanation —
