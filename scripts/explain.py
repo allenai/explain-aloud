@@ -111,7 +111,7 @@ RA_DEFAULTS = {
 }
 
 EA_DEFAULTS = {
-    "mode": "always",           # always | auto | off
+    "mode": "off",              # off (on-demand) | auto | always
     "model": "haiku",           # claude CLI model alias for script generation
     "timeout_s": 60,            # claude -p timeout
     "max_speech_words": 250,    # word budget passed to the prompt

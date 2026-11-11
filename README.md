@@ -10,12 +10,32 @@ Built on top of the [read-aloud](https://github.com/michaelpgifford/claude-read-
 plugin's MIT-licensed TTS core (vendored): Kokoro local neural voice, chunked
 low-latency playback. read-aloud stays the place you pick your voice.
 
-## Install
+## Install (2 minutes)
+
+In any Claude Code session (desktop app or CLI):
 
 ```
-/plugin marketplace add /home/aryeht/PycharmProjects/explain-aloud
+/plugin marketplace add allenai/explain-aloud
 /plugin install explain-aloud@explain-aloud
+/read-aloud:voice-setup
 ```
+
+The last command installs the free local neural voice (~340MB one-time
+download) via the read-aloud plugin — install that first from the plugin
+directory if you don't have it (`/plugin install read-aloud`). Optionally
+`sudo apt install mpv` to enable pause/resume/rewind. Restart Claude Code.
+
+## Use
+
+- **`/explain-aloud:explain`** — speak a teacher-style explanation of the last
+  reply. Generation takes ~15–40s, then audio starts.
+- **Button lane** (desktop app) — a slim row above the prompt box:
+  🎙️ Explain · ⏪ 5s · ⏸ Pause · ⏹ Stop.
+- Sending a new prompt cancels any pending or playing explanation.
+- Default mode is on-demand (`off`); `/explain-aloud:mode always|auto` makes it
+  speak after every / after long replies.
+
+Installing from a local checkout instead: `/plugin marketplace add <path-to-repo>`.
 
 Requirements:
 - Linux, Python 3.9+ (stdlib only at runtime).
@@ -33,7 +53,7 @@ skips speaking rather than letting two voices race.
 | Command | Does |
 |---|---|
 | `/explain-aloud:explain` | explain the last reply now |
-| `/explain-aloud:mode always\|auto\|off` | when to speak (default: always) |
+| `/explain-aloud:mode always\|auto\|off` | when to speak (default: off = on-demand) |
 | `/explain-aloud:status` | current config + warnings |
 | `/explain-aloud:stop` | stop/cancel current explanation |
 | `/explain-aloud:pause` / `resume` | pause / resume (needs mpv) |
@@ -45,7 +65,7 @@ skips speaking rather than letting two voices race.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"always"` | `always` / `auto` (threshold) / `off` |
+| `mode` | `"off"` | `off` (on-demand) / `auto` (threshold) / `always` |
 | `model` | `"haiku"` | claude CLI model alias for generation |
 | `timeout_s` | `60` | generation timeout; on failure one fixed line is spoken |
 | `max_speech_words` | `250` | word budget for the spoken script |

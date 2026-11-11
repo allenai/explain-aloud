@@ -17,7 +17,7 @@ def _point_configs(monkeypatch, tmp_path):
 def test_defaults_when_no_config_files(tmp_path, monkeypatch):
     _point_configs(monkeypatch, tmp_path)
     cfg = explain.load_cfg()
-    assert cfg["mode"] == "always" and cfg["model"] == "haiku"
+    assert cfg["mode"] == "off" and cfg["model"] == "haiku"
     assert cfg["timeout_s"] == 60 and cfg["context_cap_chars"] == 4000
     assert cfg["max_speech_words"] == 250
     assert cfg["auto_min_chars"] == 700 and cfg["auto_min_bullets"] == 6

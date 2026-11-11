@@ -60,7 +60,8 @@ def test_hook_skips_and_warns_when_read_aloud_auto_read_on(tmp_path, monkeypatch
     t = tmp_path / "s.jsonl"
     t.write_text("{}")
     monkeypatch.delenv("EXPLAIN_ALOUD_CHILD", raising=False)
-    monkeypatch.setattr(explain, "load_cfg", lambda: _cfg(ra_auto_read=True))
+    monkeypatch.setattr(explain, "load_cfg",
+                        lambda: _cfg(mode="always", ra_auto_read=True))
     calls = _record_detach(monkeypatch)
     _feed_stdin(monkeypatch, json.dumps({"transcript_path": str(t)}))
     assert explain.hook_mode() == 0
@@ -72,7 +73,7 @@ def test_hook_detaches_worker_with_transcript_path(tmp_path, monkeypatch):
     t = tmp_path / "s.jsonl"
     t.write_text("{}")
     monkeypatch.delenv("EXPLAIN_ALOUD_CHILD", raising=False)
-    monkeypatch.setattr(explain, "load_cfg", _cfg)
+    monkeypatch.setattr(explain, "load_cfg", lambda: _cfg(mode="always"))
     calls = _record_detach(monkeypatch)
     _feed_stdin(monkeypatch, json.dumps({"transcript_path": str(t)}))
     assert explain.hook_mode() == 0
@@ -126,7 +127,7 @@ def test_worker_writes_own_pid_file_before_generation(tmp_path, monkeypatch):
     t.write_text(json.dumps({"type": "assistant",
                              "message": {"content": [{"type": "text", "text": "the answer"}]}}))
     monkeypatch.setattr(explain, "WORKER_PID_DIR", tmp_path)
-    monkeypatch.setattr(explain, "load_cfg", _cfg)
+    monkeypatch.setattr(explain, "load_cfg", lambda: _cfg(mode="always"))
     pidfile = tmp_path / f"claude-explain-aloud-worker-{explain.os.getpid()}.pid"
     seen = {}
 
