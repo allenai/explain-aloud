@@ -1,7 +1,7 @@
 {
   "name": "explain-aloud",
   "description": "Explains Claude's replies aloud like a teacher \u2014 a cheap model rewrites each reply into a spoken explanation (not a verbatim read-out) and plays it through local TTS, with pause/resume/seek-back.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "author": {
     "name": "Aryeh"
   },
