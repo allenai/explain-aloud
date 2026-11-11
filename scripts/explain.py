@@ -199,6 +199,64 @@ def last_reply(path: pathlib.Path) -> str:
     return text
 
 
+def _entry_text(entry: dict) -> str:
+    """Joined text blocks of one transcript entry; '' when there are none."""
+    content = entry.get("message", {}).get("content", [])
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(b.get("text", "") for b in content
+                   if isinstance(b, dict) and b.get("type") == "text")
+
+
+def last_exchange(path: pathlib.Path, cap: int) -> tuple[str, str]:
+    """(last user message truncated to cap chars, final assistant text block).
+
+    Empty strings for whichever side is absent; malformed lines are skipped.
+    """
+    user_msg = reply = ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "", ""
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(e, dict) or not isinstance(e.get("message"), (dict,)):
+            continue
+        text = _entry_text(e)
+        if e.get("type") == "user" and text.strip():
+            user_msg = text
+            reply = ""                   # a newer exchange started
+        elif e.get("type") == "assistant" and text.strip():
+            reply = text
+    return user_msg[:cap], reply
+
+
+def should_speak(reply: str, cfg: dict) -> bool:
+    """Trigger check: off/always, or auto's any-signal-fires heuristic."""
+    mode = cfg.get("mode", "always")
+    if mode == "off" or not reply.strip():
+        return False
+    if mode == "always":
+        return True
+    # auto: any signal fires
+    if "```" in reply:
+        return True
+    if re.search(r"^\s*\|.+\|\s*$", reply, flags=re.M):
+        return True
+    bullets = len(re.findall(r"^[ \t]*[-*+] ", reply, flags=re.M))
+    if bullets >= int(cfg.get("auto_min_bullets", 6)):
+        return True
+    prose = re.sub(r"\s+", " ", reply).strip()
+    return len(prose) > int(cfg.get("auto_min_chars", 700))
+
+
 def spoken_form(md: str, max_chars: int) -> str:
     """Markdown reads terribly aloud — strip everything that is not prose."""
     s = re.sub(r"```.*?```", " (code omitted) ", md, flags=re.S)
