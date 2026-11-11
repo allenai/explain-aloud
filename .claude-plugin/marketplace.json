@@ -1,0 +1,14 @@
+{
+  "name": "explain-aloud",
+  "owner": {
+    "name": "Aryeh"
+  },
+  "plugins": [
+    {
+      "name": "explain-aloud",
+      "source": "./",
+      "description": "Explains Claude's replies aloud like a teacher — a cheap model rewrites each reply into a spoken explanation and plays it through local TTS, with pause/resume/seek-back."
+    }
+  ],
+  "description": "Teacher-style spoken explanations of Claude's replies, not verbatim read-outs."
+}
