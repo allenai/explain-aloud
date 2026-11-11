@@ -30,6 +30,11 @@ third row is the problem") instead of reading them.
   Ships with `always` so early debugging is easy; `auto` is the intended
   steady state.
 - Hook must never block or break Claude Code's own flow.
+- Active machine-wide, every session including headless runs (Aryeh's
+  decision): no per-project allowlist; `mode: off`/`auto` is the escape
+  hatch.
+- Sending a new prompt cancels any pending or playing explanation
+  (Aryeh's decision).
 
 ## Non-goals
 
@@ -71,7 +76,10 @@ third row is the problem") instead of reading them.
 Standalone plugin in its own repo, `~/PycharmProjects/explain-aloud`:
 
 - `.claude-plugin/plugin.json`
-- `hooks/hooks.json` — Stop hook → `scripts/explain.py --hook`
+- `hooks/hooks.json` — Stop hook → `scripts/explain.py --hook`, and a
+  UserPromptSubmit hook that cancels any pending generation or playing
+  explanation (Aryeh's decision: a new prompt means the old answer's audio
+  is stale)
 - `scripts/explain.py` — orchestrator: vendored `speak.py` plus the new
   explanation pipeline (one file is fine; builder may split)
 - `skills/` — slash commands: explain last reply on demand, set mode
@@ -93,8 +101,14 @@ Standalone plugin in its own repo, `~/PycharmProjects/explain-aloud`:
      (signals: prose length, presence of tables or code blocks, bullet
      count). Exact heuristic and default values: builder's call, but each
      signal's threshold must be a config key.
-4. **Generate the spoken script**: run `claude -p --model haiku` with the
-   reply and a fixed instruction prompt. Binding requirements for that
+4. **Generate the spoken script**: run `claude -p --model haiku` with a
+   fixed instruction prompt, the reply, **and the user message that
+   prompted it** (my call: terse references like "option 2" or "the file we
+   discussed" are unresolvable from the reply alone; the triggering user
+   message recovers most of them cheaply. Context is capped — config key,
+   default ~4k chars — and older turns are not sent in v1). The hook must
+   guard against triggering itself recursively from its own `claude -p`
+   child (sentinel env var). Binding requirements for that
    prompt (exact wording is the builder's):
    - Audio must be self-sufficient: the listener acts without reading.
    - Teacher explaining, not narrating: natural spoken rhythm, short
@@ -117,7 +131,10 @@ Standalone plugin in its own repo, `~/PycharmProjects/explain-aloud`:
 6. **Mutual exclusion**: reuse read-aloud's pidfile path
    (`$TMPDIR/claude-read-aloud.pid`) so starting an explanation stops any
    read-aloud reading and vice versa — the two plugins can never talk over
-   each other (my call).
+   each other (my call). explain-aloud never modifies read-aloud's config:
+   read-aloud's `auto_read` is expected to stay off (it is off today);
+   when both auto modes are detected on, explain-aloud warns in `--status`
+   and at hook time, and skips speaking rather than racing (my call).
 
 ### Playback control
 
