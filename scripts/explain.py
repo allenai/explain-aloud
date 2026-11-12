@@ -271,6 +271,29 @@ def newest_transcript(project: str | None = None) -> pathlib.Path | None:
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
 
+def session_transcript(session_id: str) -> pathlib.Path | None:
+    """The transcript of one specific session, wherever its project dir is.
+    Session ids are UUIDs; anything else (path tricks included) matches nothing."""
+    sid = (session_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9-]{8,}", sid):
+        return None
+    hits = [p for p in PROJECTS.glob(f"*/{sid}.jsonl") if p.is_file()]
+    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
+
+
+def pick_transcript(args) -> pathlib.Path | None:
+    """Explicit path > the caller's own session > newest in the project.
+    The session id matters: "newest in the project" is another session's
+    transcript whenever two sessions run side by side."""
+    if args.transcript:
+        return pathlib.Path(args.transcript)
+    if getattr(args, "session_id", None):
+        t = session_transcript(args.session_id)
+        if t:
+            return t
+    return newest_transcript(args.project)
+
+
 def last_reply(path: pathlib.Path) -> str:
     """The final assistant text block in a session transcript."""
     text = ""
@@ -1120,6 +1143,9 @@ def main() -> int:
     ap.add_argument("--text")
     ap.add_argument("--stdin", action="store_true")
     ap.add_argument("--transcript")
+    ap.add_argument("--session-id", dest="session_id",
+                    help="speak this session's reply (resolved to its "
+                         "transcript); beats --project's newest-file guess")
     ap.add_argument("--project")
     ap.add_argument("--detach", action="store_true")
     ap.add_argument("--hook", action="store_true")
@@ -1187,8 +1213,7 @@ def main() -> int:
         return show_status(cfg)
 
     if args.print_only:
-        t = (pathlib.Path(args.transcript) if args.transcript
-             else newest_transcript(args.project))
+        t = pick_transcript(args)
         if not t or not t.exists():
             print("no transcript found", file=sys.stderr)
             return 1
@@ -1203,8 +1228,7 @@ def main() -> int:
         return 0
 
     if args.worker:
-        t = (pathlib.Path(args.transcript) if args.transcript
-             else newest_transcript(args.project))
+        t = pick_transcript(args)
         if not t or not t.exists():
             return 0
         return worker_mode(str(t), force=args.force)
@@ -1214,8 +1238,7 @@ def main() -> int:
     elif args.text:
         raw = args.text
     else:
-        t = (pathlib.Path(args.transcript) if args.transcript
-             else newest_transcript(args.project))
+        t = pick_transcript(args)
         if not t or not t.exists():
             print("no transcript found", file=sys.stderr)
             return 1

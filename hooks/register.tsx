@@ -110,7 +110,12 @@ export const register: Register = on => {
           await update($, isPaused, () => false)
           await update($, status, () =>
             ({ phase: 'generating', text: '🧠 writing script…' }) as Status)
-          await run(['--worker', '--force', '--project', cwd, '--detach'])
+          // Session id read at press time (a /clear changes it mid-process):
+          // it pins the worker to THIS session's transcript — "newest in the
+          // project" is another session's whenever two run side by side.
+          const sid = await $.session.id()
+          await run(['--worker', '--force', '--session-id', sid,
+                     '--project', cwd, '--detach'])
         })}
         {slot(8, canControl, '⏪ 5s', 'back', () => run(['--back', '5']))}
         {slot(11, canControl, paused ? '▶ Resume' : '⏸ Pause', 'pause', async () => {
