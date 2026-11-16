@@ -335,45 +335,30 @@ def _entry_text(entry: dict) -> str:
                    if isinstance(b, dict) and b.get("type") == "text")
 
 
-def last_exchange(path: pathlib.Path, cap: int) -> tuple[str, str]:
-    """(last user message truncated to cap chars, final assistant text block).
+# Entries that look like user messages but are not something the person
+# asked: slash-command invocations, their output, and injected skill text.
+_COMMAND_PREFIXES = ("<command-message>", "<command-name>", "<local-command-")
+_OWN_COMMAND = "<command-name>/explain-aloud:"
 
-    Empty strings for whichever side is absent; malformed lines are skipped.
+
+def _conversation(path: pathlib.Path) -> tuple[list, list]:
+    """(messages, exchanges) from a transcript.
+
+    messages: [(role, text)] of real user prompts and assistant text.
+    exchanges: [[user_text, reply_text, index_of_user_in_messages]], reply
+    being the exchange's final assistant text ("" for a tool-only turn).
+    Slash commands, their output and meta entries are skipped without
+    starting an exchange — so a /model after a reply doesn't hide it — and
+    an explain-aloud command's whole turn (its "explaining aloud…" reply
+    included) is dropped, so the command never explains itself.
     """
-    user_msg = reply = ""
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return "", ""
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            e = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(e, dict) or not isinstance(e.get("message"), (dict,)):
-            continue
-        text = _entry_text(e)
-        if e.get("type") == "user" and text.strip():
-            user_msg = text
-            reply = ""                   # a newer exchange started
-        elif e.get("type") == "assistant" and text.strip():
-            reply = text
-    return user_msg[:cap], reply
-
-
-def recent_exchanges(path: pathlib.Path, k: int, cap: int) -> str:
-    """The last k text messages BEFORE the final user/assistant pair, as
-    'User: …' / 'Assistant: …' lines, each message truncated, whole block
-    capped — context so terse references in the reply resolve."""
-    if k <= 0:
-        return ""
     msgs: list = []
+    exs: list = []
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return ""
+        return msgs, exs
+    in_own_command = False
     for line in lines:
         if not line.strip():
             continue
@@ -383,18 +368,56 @@ def recent_exchanges(path: pathlib.Path, k: int, cap: int) -> str:
             continue
         if not isinstance(e, dict) or not isinstance(e.get("message"), dict):
             continue
-        text = _entry_text(e).strip()
+        text = _entry_text(e)
         role = e.get("type")
-        if text and role in ("user", "assistant"):
-            msgs.append(("User" if role == "user" else "Assistant", text))
-    # Drop the final exchange: it is passed to the prompt separately.
-    while msgs and msgs[-1][0] == "Assistant":
-        msgs.pop()
-    if msgs:
-        msgs.pop()                        # the final user message
-    out: list = []
-    for role, text in msgs[-k:]:
-        out.append(f"{role}: {text[:500]}")
+        if role == "user":
+            head = text.lstrip()
+            if e.get("isMeta") or head.startswith(_COMMAND_PREFIXES):
+                if _OWN_COMMAND in text:
+                    in_own_command = True
+                continue
+            if not text.strip():
+                continue                 # tool results carry no text blocks
+            in_own_command = False
+            exs.append([text, "", len(msgs)])
+            msgs.append(("User", text))
+        elif role == "assistant" and text.strip():
+            if in_own_command:
+                continue
+            if not exs:
+                exs.append(["", "", len(msgs)])
+            exs[-1][1] = text
+            msgs.append(("Assistant", text))
+    return msgs, exs
+
+
+def _pick(exs: list, nth: int) -> list | None:
+    """The nth-from-last exchange, clamped to the oldest one."""
+    if not exs:
+        return None
+    return exs[-min(max(1, int(nth)), len(exs))]
+
+
+def last_exchange(path: pathlib.Path, cap: int, nth: int = 1) -> tuple[str, str]:
+    """(user message truncated to cap chars, final assistant text) of the
+    nth-from-last exchange (1 = the last). Empty strings when absent."""
+    _, exs = _conversation(path)
+    ex = _pick(exs, nth)
+    if ex is None:
+        return "", ""
+    return ex[0][:cap], ex[1]
+
+
+def recent_exchanges(path: pathlib.Path, k: int, cap: int, nth: int = 1) -> str:
+    """The last k text messages BEFORE the chosen exchange, as 'User: …' /
+    'Assistant: …' lines, each message truncated, whole block capped —
+    context so terse references in the reply resolve."""
+    if k <= 0:
+        return ""
+    msgs, exs = _conversation(path)
+    ex = _pick(exs, nth)
+    before = msgs[:ex[2]] if ex is not None else msgs
+    out = [f"{role}: {text[:500]}" for role, text in before[-k:]]
     return "\n".join(out)[-cap:] if cap > 0 else ""
 
 
@@ -1086,7 +1109,7 @@ def hook_mode() -> int:
     return 0
 
 
-def worker_mode(transcript: str, force: bool = False) -> int:
+def worker_mode(transcript: str, force: bool = False, nth: int = 1) -> int:
     """Detached pipeline: extract → trigger → generate → speak.
 
     The worker pidfile is written BEFORE generation and claim() happens only
@@ -1103,7 +1126,7 @@ def worker_mode(transcript: str, force: bool = False) -> int:
     try:
         cfg = load_cfg()
         user_msg, reply = last_exchange(pathlib.Path(transcript),
-                                        int(cfg["context_cap_chars"]))
+                                        int(cfg["context_cap_chars"]), nth)
         if force:
             if not reply.strip():
                 return 0
@@ -1112,7 +1135,7 @@ def worker_mode(transcript: str, force: bool = False) -> int:
         write_status(phase="generating", started=time.time())
         history = recent_exchanges(pathlib.Path(transcript),
                                    int(cfg.get("context_messages", 6)),
-                                   int(cfg.get("history_cap_chars", 3000)))
+                                   int(cfg.get("history_cap_chars", 3000)), nth)
         script = cached_script(user_msg, reply, cfg, history)
         speak_text(script, cfg)
         return 0
@@ -1262,6 +1285,8 @@ def main() -> int:
                     help="speak this session's reply (resolved to its "
                          "transcript); beats --project's newest-file guess")
     ap.add_argument("--project")
+    ap.add_argument("--nth", type=int, default=1, metavar="N",
+                    help="explain the reply N exchanges back (1 = the last)")
     ap.add_argument("--detach", action="store_true")
     ap.add_argument("--hook", action="store_true")
     ap.add_argument("--cancel", action="store_true")
@@ -1332,7 +1357,7 @@ def main() -> int:
         if not t or not t.exists():
             print("no transcript found", file=sys.stderr)
             return 1
-        user_msg, reply = last_exchange(t, int(cfg["context_cap_chars"]))
+        user_msg, reply = last_exchange(t, int(cfg["context_cap_chars"]), args.nth)
         print(cached_script(user_msg, reply, cfg))
         return 0
 
@@ -1346,7 +1371,7 @@ def main() -> int:
         t = pick_transcript(args)
         if not t or not t.exists():
             return 0
-        return worker_mode(str(t), force=args.force)
+        return worker_mode(str(t), force=args.force, nth=args.nth)
 
     if args.stdin:
         raw = sys.stdin.read()

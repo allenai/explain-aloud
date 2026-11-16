@@ -45,10 +45,15 @@ Code.
 - **`/explain-aloud:explain`** — speak a teacher-style explanation of the last
   reply. Generation takes ~15–40s, then audio starts.
 - **Button lane** (desktop app and terminal) — a slim row above the prompt box:
-  🎙️ Explain · ⏪ 5s · ⏸ Pause · ⏹ Stop, plus a live status at the end of the
+  🎙️ Explain · ⏮ earlier · ⏪ 5s · ⏸ Pause · ⏹ Stop, plus a live status at the end of the
   row: `🧠 writing script… 12s` while the model works, `🔊 64%` during
   playback. Buttons that don't apply to the current phase are dimmed and
   inert, so the row never changes shape.
+- **Explaining an earlier reply** — when a short follow-up ("ran it, done")
+  sits after the reply you actually care about, press ⏮ to step back
+  (2nd-last, 3rd-last … up to 6th, then it wraps), then Explain; or run
+  `/explain-aloud:explain 2`. The target resets to the last reply after each
+  Explain. Slash commands and their output never count as replies.
 - Sending a new prompt — or closing the session — cancels any pending or
   playing explanation.
 - Pressing Explain again on the same message replays instantly from a local
@@ -76,7 +81,7 @@ skips speaking rather than letting two voices race.
 
 | Command | Does |
 |---|---|
-| `/explain-aloud:explain` | explain the last reply now |
+| `/explain-aloud:explain [N]` | explain the last reply now; `N` = the Nth-last (`2` = the one before the last) |
 | `/explain-aloud:mode always\|auto\|off` | when to speak (default: off = on-demand) |
 | `/explain-aloud:model haiku\|sonnet\|opus` | which model writes the explanation (default haiku; bigger = better, slower) |
 | `/explain-aloud:context N` | how many earlier thread messages feed the explanation (default 6, 0 = none) |

@@ -16,6 +16,16 @@ const status = atom(
   { phase: '', text: '' } as Status,
 )
 
+// Which reply the next Explain press targets: 1 = the last, 2 = the one
+// before, … Stepped by the ⏮ button (wrapping after MAX_BACK), reset to 1
+// after each Explain so the default press always means "the last reply".
+const MAX_BACK = 6
+const ordinal = (n: number) => `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`
+const target = atom(
+  { plugin: 'explain-aloud', key: 'target' } as const,
+  1,
+)
+
 // Locates this plugin's explain.py (newest installed copy in the plugin
 // cache, or a checkout opened as the working directory) and the temp dir
 // that holds its status file. Prints two lines: script path, temp dir.
@@ -78,6 +88,7 @@ export const register: Register = on => {
 
     const paused = await read($, isPaused)
     const st = await read($, status)
+    const nth = await read($, target)
     const { Box, Button, Text } = $.ui.resolve(e)
     const run = (args: string[]) =>
       $.process.run(['python3', script, ...args])
@@ -114,9 +125,12 @@ export const register: Register = on => {
           // it pins the worker to THIS session's transcript — "newest in the
           // project" is another session's whenever two run side by side.
           const sid = await $.session.id()
-          await run(['--worker', '--force', '--session-id', sid,
-                     '--project', cwd, '--detach'])
+          await update($, target, () => 1)
+          await run(['--worker', '--force', '--nth', String(nth),
+                     '--session-id', sid, '--project', cwd, '--detach'])
         })}
+        {slot(12, canExplain, nth > 1 ? `⏮ ${ordinal(nth)}-last` : '⏮ earlier', 'earlier',
+          () => update($, target, n => (n >= MAX_BACK ? 1 : n + 1)))}
         {slot(8, canControl, '⏪ 5s', 'back', () => run(['--back', '5']))}
         {slot(11, canControl, paused ? '▶ Resume' : '⏸ Pause', 'pause', async () => {
           const wantPause = !paused
@@ -128,7 +142,7 @@ export const register: Register = on => {
           await update($, isPaused, () => false)
           await update($, status, () => ({ phase: '', text: '' }) as Status)
         })}
-        <Text dimColor> {st.text}</Text>
+        <Text dimColor> {st.text || (nth > 1 ? `↩ Explain → ${ordinal(nth)}-last reply` : '')}</Text>
       </Box>
     )
   })
