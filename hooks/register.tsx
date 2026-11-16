@@ -17,13 +17,22 @@ const status = atom(
 )
 
 // Which reply the next Explain press targets: 1 = the last, 2 = the one
-// before, … Stepped by the ⏮ button (wrapping after MAX_BACK), reset to 1
-// after each Explain so the default press always means "the last reply".
-const MAX_BACK = 6
-const ordinal = (n: number) => `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`
+// before, … « steps older, » steps newer, ● jumps back to the last; reset to
+// 1 after each Explain so a plain press always means "the last reply".
+// `oldest` is the session's reply count, refreshed on each « press, so « dims
+// at the first reply instead of stepping past it (0 = not counted yet).
+const ordinal = (n: number) => {
+  const teen = n % 100 >= 11 && n % 100 <= 13
+  const suffix = teen ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'
+  return `${n}${suffix}`
+}
 const target = atom(
   { plugin: 'explain-aloud', key: 'target' } as const,
   1,
+)
+const oldest = atom(
+  { plugin: 'explain-aloud', key: 'oldest' } as const,
+  0,
 )
 
 // Locates this plugin's explain.py (newest installed copy in the plugin
@@ -89,6 +98,7 @@ export const register: Register = on => {
     const paused = await read($, isPaused)
     const st = await read($, status)
     const nth = await read($, target)
+    const count = await read($, oldest)
     const { Box, Button, Text } = $.ui.resolve(e)
     const run = (args: string[]) =>
       $.process.run(['python3', script, ...args])
@@ -126,11 +136,20 @@ export const register: Register = on => {
           // project" is another session's whenever two run side by side.
           const sid = await $.session.id()
           await update($, target, () => 1)
+          await update($, oldest, () => 0)
           await run(['--worker', '--force', '--nth', String(nth),
                      '--session-id', sid, '--project', cwd, '--detach'])
         })}
-        {slot(12, canExplain, nth > 1 ? `⏮ ${ordinal(nth)}-last` : '⏮ earlier', 'earlier',
-          () => update($, target, n => (n >= MAX_BACK ? 1 : n + 1)))}
+        {slot(4, canExplain && (count === 0 || nth < count), '«', 'older', async () => {
+          const sid = await $.session.id()
+          const out = await run(['--count', '--session-id', sid, '--project', cwd])
+          const n = parseInt(out.stdout.trim(), 10) || 0
+          await update($, oldest, () => n)
+          await update($, target, t => (n > 0 ? Math.min(t + 1, n) : t + 1))
+        })}
+        {slot(4, canExplain && nth > 1, '●', 'latest', () => update($, target, () => 1))}
+        {slot(4, canExplain && nth > 1, '»', 'newer', () =>
+          update($, target, t => Math.max(1, t - 1)))}
         {slot(8, canControl, '⏪ 5s', 'back', () => run(['--back', '5']))}
         {slot(11, canControl, paused ? '▶ Resume' : '⏸ Pause', 'pause', async () => {
           const wantPause = !paused
@@ -142,7 +161,7 @@ export const register: Register = on => {
           await update($, isPaused, () => false)
           await update($, status, () => ({ phase: '', text: '' }) as Status)
         })}
-        <Text dimColor> {st.text || (nth > 1 ? `↩ Explain → ${ordinal(nth)}-last reply` : '')}</Text>
+        <Text dimColor> {st.text || (nth > 1 ? `↩ Explain → ${ordinal(nth)}-last reply${count && nth >= count ? ' (oldest)' : ''}` : '')}</Text>
       </Box>
     )
   })

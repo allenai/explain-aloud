@@ -1317,6 +1317,9 @@ def main() -> int:
     ap.add_argument("--set-context", dest="set_context", type=int, metavar="N",
                     help="how many earlier thread messages go to the prompt "
                          "as context (0 = none); persisted")
+    ap.add_argument("--count", action="store_true",
+                    help="print how many replies the session has (for the "
+                         "button row's step-back limit)")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--print", action="store_true", dest="print_only",
                     help="print the generated spoken script, speak nothing")
@@ -1355,6 +1358,11 @@ def main() -> int:
 
     if args.status:
         return show_status(cfg)
+
+    if args.count:
+        t = pick_transcript(args)
+        print(len(_conversation(t)[1]) if t and t.exists() else 0)
+        return 0
 
     if args.print_only:
         t = pick_transcript(args)

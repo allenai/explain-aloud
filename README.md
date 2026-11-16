@@ -45,13 +45,14 @@ Code.
 - **`/explain-aloud:explain`** — speak a teacher-style explanation of the last
   reply. Generation takes ~15–40s, then audio starts.
 - **Button lane** (desktop app and terminal) — a slim row above the prompt box:
-  🎙️ Explain · ⏮ earlier · ⏪ 5s · ⏸ Pause · ⏹ Stop, plus a live status at the end of the
+  🎙️ Explain · « ● » · ⏪ 5s · ⏸ Pause · ⏹ Stop, plus a live status at the end of the
   row: `🧠 writing script… 12s` while the model works, `🔊 64%` during
   playback. Buttons that don't apply to the current phase are dimmed and
   inert, so the row never changes shape.
 - **Explaining an earlier reply** — when a short follow-up ("ran it, done")
-  sits after the reply you actually care about, press ⏮ to step back
-  (2nd-last, 3rd-last … up to 6th, then it wraps), then Explain; or run
+  sits after the reply you actually care about, press « to step back
+  (2nd-last, 3rd-last … down to the session's first reply), » to step
+  forward, ● to jump back to the last reply, then Explain; or run
   `/explain-aloud:explain 2`. The target resets to the last reply after each
   Explain. Slash commands and their output never count as replies.
 - Sending a new prompt — or closing the session — cancels any pending or

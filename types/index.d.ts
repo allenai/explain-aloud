@@ -4,6 +4,6 @@ export type Target = number
 
 declare module 'claude-code' {
   interface PluginState {
-    'explain-aloud': { isPaused: Paused; status: Status; target: Target }
+    'explain-aloud': { isPaused: Paused; status: Status; target: Target; oldest: Target }
   }
 }

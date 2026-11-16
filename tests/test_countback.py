@@ -110,3 +110,20 @@ def test_worker_explains_chosen_exchange(tmp_path, monkeypatch):
     monkeypatch.setattr(explain, "speak_text", lambda t, c: None)
     assert explain.worker_mode(str(p), force=True, nth=3) == 0
     assert got == {"user": "q1", "reply": "BIG interesting answer", "history": ""}
+
+
+def test_count_prints_number_of_exchanges(tmp_path, monkeypatch, capsys):
+    p = _w(tmp_path, CONVO + [
+        _u("<command-name>/explain-aloud:explain</command-name>"),
+        _a("🎙️ explaining aloud…"),
+    ])
+    monkeypatch.setattr("sys.argv", ["explain.py", "--count", "--transcript", str(p)])
+    assert explain.main() == 0
+    assert capsys.readouterr().out.strip() == "3"
+
+
+def test_count_missing_transcript_prints_zero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["explain.py", "--count",
+                                     "--transcript", str(tmp_path / "nope.jsonl")])
+    assert explain.main() == 0
+    assert capsys.readouterr().out.strip() == "0"
