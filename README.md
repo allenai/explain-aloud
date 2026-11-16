@@ -144,3 +144,17 @@ re-triggering its hooks. While running, the worker writes a status file
 (`generating` with a start time, then `speaking` with chars done/total,
 refined every second from mpv's playback position); the button band polls it
 for the live status and percentage.
+
+## Contributing
+
+Bug reports and ideas go in [GitHub issues](https://github.com/allenai/explain-aloud/issues);
+pull requests are even more welcome. Run the tests with `pytest` (the plugin
+itself uses only the Python standard library; pytest is the only dev
+dependency).
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE). Portions derived from
+[read-aloud](https://github.com/michaelpgifford/claude-read-aloud) (MIT,
+© Michael Gifford) — see [NOTICE](NOTICE) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

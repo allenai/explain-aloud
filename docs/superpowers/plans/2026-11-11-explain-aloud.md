@@ -42,7 +42,7 @@
 - Produces: `load_cfg() -> dict` — merged config later tasks read. Keys: `mode` ("always"|"auto"|"off", default "always"), `model` (default "haiku"), `timeout_s` (default 60), `max_speech_words` (default 250), `context_cap_chars` (default 4000), `auto_min_chars` (default 700), `auto_min_bullets` (default 6), plus `provider`, `voice`, `speed`, `first_chars`, `chunk_chars`, `max_chars` taken from read-aloud's config (its defaults when that file is absent).
 - Produces: module-level constant `FALLBACK_LINE` with the exact failure line.
 
-- [ ] **Step 1: Scaffold.** Copy `/home/aryeht/.claude/plugins/cache/anthropic-plugin-directory/read-aloud/0.4.0-c69092562a0b/scripts/speak.py` to `scripts/explain.py`; copy that plugin's LICENSE to `LICENSE` and add a line naming the vendored file. Write `plugin.json` (name `explain-aloud`, version `0.1.0`, description one line). `.gitignore`: `__pycache__/`, `.pytest_cache/`.
+- [ ] **Step 1: Scaffold.** Copy `~/.claude/plugins/cache/anthropic-plugin-directory/read-aloud/0.4.0-c69092562a0b/scripts/speak.py` to `scripts/explain.py`; copy that plugin's LICENSE to `LICENSE` and add a line naming the vendored file. Write `plugin.json` (name `explain-aloud`, version `0.1.0`, description one line). `.gitignore`: `__pycache__/`, `.pytest_cache/`.
 - [ ] **Step 2: Write failing tests** in `tests/test_config.py` (conftest adds `scripts/` to `sys.path`):
 
 ```python
@@ -242,6 +242,6 @@ def test_control_without_socket_prints_hint(capsys): ...            # no socket 
 - [ ] **Step 1: Validate plugin:** `claude plugin validate .` → no errors (if the subcommand is unavailable, lint hooks.json/plugin.json shapes by hand against read-aloud's).
 - [ ] **Step 2: Dry-run the pipeline without audio:** `python3 scripts/explain.py --print` in a project with a real transcript → prints a plain-text spoken script; verify no markdown, no timestamp, references unpacked.
 - [ ] **Step 3: Manual audio test:** `echo '{"transcript_path":"<fixture>"}' | python3 scripts/explain.py --hook` with mode `always` → explanation audio plays within ~15s of generation finishing; `--pause`, `--resume`, `--back` work mid-speech; second hook invocation cancels the first cleanly.
-- [ ] **Step 4: Install for real:** `/plugin marketplace add /home/aryeht/PycharmProjects/explain-aloud` + install (user does this in the app; document in README if CLI differs).
+- [ ] **Step 4: Install for real:** `/plugin marketplace add ~/PycharmProjects/explain-aloud` + install (user does this in the app; document in README if CLI differs).
 - [ ] **Step 5: Live session check:** ask any Claude session a question producing a long reply → explanation speaks; send next prompt mid-speech → audio stops.
 - [ ] **Step 6: Commit** `feat: local marketplace manifest` + tag `v0.1.0`.

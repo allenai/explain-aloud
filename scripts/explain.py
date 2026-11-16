@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """explain-aloud: explain Claude's replies aloud like a teacher.
 
-Vendored from read-aloud 0.4.0's speak.py (MIT, (c) 2026 Michael Gifford) and
-extended. Python 3.9+, standard library only.
+Copyright 2026 The Allen Institute for Artificial Intelligence.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Portions derived from read-aloud 0.4.0's speak.py — Copyright (c) 2026
+Michael Gifford, MIT License (see THIRD_PARTY_NOTICES.md) — and extended.
+Python 3.9+, standard library only.
 
 Inherited design notes that still hold:
 
