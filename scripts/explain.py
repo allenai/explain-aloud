@@ -20,11 +20,13 @@ Inherited design notes that still hold:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
 import re
 import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -198,6 +200,8 @@ EA_DEFAULTS = {
     "context_messages": 6,      # earlier messages sent as prompt context
     "history_cap_chars": 3000,  # cap on that history block
     "language": "english",      # spoken-script language; needs a TTS voice for it
+    "cache": True,              # reuse script + audio when re-explaining a message
+    "cache_max_mb": 200,        # LRU cap on the cache directory
 }
 
 
@@ -519,6 +523,117 @@ def generate_script(user_msg: str, reply: str, cfg: dict, history: str = "") -> 
     except Exception as e:               # noqa: BLE001 — must never raise
         print(f"explain-aloud: generation failed: {e}", file=sys.stderr)
         return FALLBACK_LINE
+
+
+# ---------------------------------------------------------------------- cache
+# Pressing Explain again on the same message should replay, not regenerate:
+# the script costs 15-40s of model time and cloud audio costs paid credits.
+# Script and audio are keyed by everything that shapes them, so a change of
+# language, model, voice or prompt misses cleanly instead of serving stale.
+
+
+def cache_dir() -> pathlib.Path:
+    env = os.environ.get("EXPLAIN_ALOUD_CACHE")
+    if env:
+        return pathlib.Path(env)
+    if IS_WIN:
+        base = pathlib.Path(os.environ.get("LOCALAPPDATA", HOME))
+    else:
+        base = pathlib.Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache"))
+    return base / "explain-aloud"
+
+
+def _key(*parts) -> str:
+    h = hashlib.sha256()
+    for part in parts:
+        h.update(str(part).encode("utf-8", "replace"))
+        h.update(b"\x00")
+    return h.hexdigest()[:32]
+
+
+def _touch(p: pathlib.Path) -> None:
+    try:
+        os.utime(p)                      # LRU: a hit counts as recent use
+    except OSError:
+        pass
+
+
+def _atomic_write(dest: pathlib.Path, write) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
+    try:
+        write(tmp)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def prune_cache(max_bytes: int) -> None:
+    """Drop least-recently-used cache files until the directory fits."""
+    try:
+        files = [p for p in cache_dir().iterdir() if p.is_file()]
+        sized = [(p.stat().st_mtime, p.stat().st_size, p) for p in files]
+    except OSError:
+        return
+    total = sum(s for _, s, _ in sized)
+    for _, size, p in sorted(sized):
+        if total <= max_bytes:
+            break
+        try:
+            p.unlink()
+            total -= size
+        except OSError:
+            pass
+
+
+def cached_script(user_msg: str, reply: str, cfg: dict, history: str = "") -> str:
+    """generate_script, memoised on disk. The fallback line is never stored —
+    it marks a failure, and the next press should retry the model."""
+    if not cfg.get("cache", True):
+        return generate_script(user_msg, reply, cfg, history)
+    key = _key("script", PROMPT_TEMPLATE, LANGUAGE_BLOCK, HISTORY_BLOCK,
+               cfg.get("model"), script_language(cfg),
+               cfg.get("max_speech_words"), user_msg, reply, history)
+    path = cache_dir() / f"{key}.txt"
+    try:
+        hit = path.read_text(encoding="utf-8")
+        if hit.strip():
+            _touch(path)
+            return hit
+    except OSError:
+        pass
+    script = generate_script(user_msg, reply, cfg, history)
+    if script.strip() and script != FALLBACK_LINE:
+        try:
+            _atomic_write(path, lambda t: t.write_text(script, encoding="utf-8"))
+        except OSError:
+            pass
+    return script
+
+
+def caching_synth(synth, cfg: dict):
+    """Wrap synth(text, out) so each chunk's audio is stored once and copied
+    back on a repeat. Keyed per chunk: the chunker is deterministic, so the
+    same script always yields the same chunks."""
+    if not cfg.get("cache", True):
+        return synth
+    voice_id = ("audio", cfg.get("provider"), cfg.get("voice"), cfg.get("speed"),
+                cfg.get("tts_model"), script_language(cfg))
+    cap = int(float(cfg.get("cache_max_mb", 200)) * 1024 * 1024)
+
+    def wrapped(text: str, out: pathlib.Path) -> None:
+        path = cache_dir() / f"{_key(*voice_id, text)}.wav"
+        if path.is_file() and path.stat().st_size > 0:
+            shutil.copyfile(path, out)
+            _touch(path)
+            return
+        synth(text, out)                 # raises → nothing stored
+        try:
+            _atomic_write(path, lambda t: shutil.copyfile(out, t))
+            prune_cache(cap)
+        except OSError:
+            pass
+    return wrapped
 
 
 def spoken_form(md: str, max_chars: int) -> str:
@@ -946,7 +1061,7 @@ def speak_text(text: str, cfg: dict) -> None:
     if synth is None:
         speak_direct(text, cfg)
     else:
-        play_chunked(text, cfg, synth)
+        play_chunked(text, cfg, caching_synth(synth, cfg))
 
 
 def hook_mode() -> int:
@@ -998,7 +1113,7 @@ def worker_mode(transcript: str, force: bool = False) -> int:
         history = recent_exchanges(pathlib.Path(transcript),
                                    int(cfg.get("context_messages", 6)),
                                    int(cfg.get("history_cap_chars", 3000)))
-        script = generate_script(user_msg, reply, cfg, history)
+        script = cached_script(user_msg, reply, cfg, history)
         speak_text(script, cfg)
         return 0
     finally:
@@ -1218,7 +1333,7 @@ def main() -> int:
             print("no transcript found", file=sys.stderr)
             return 1
         user_msg, reply = last_exchange(t, int(cfg["context_cap_chars"]))
-        print(generate_script(user_msg, reply, cfg))
+        print(cached_script(user_msg, reply, cfg))
         return 0
 
     if args.detach:

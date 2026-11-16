@@ -51,6 +51,8 @@ Code.
   inert, so the row never changes shape.
 - Sending a new prompt — or closing the session — cancels any pending or
   playing explanation.
+- Pressing Explain again on the same message replays instantly from a local
+  cache — no model call, no extra cloud-voice credits.
 - Default mode is on-demand (`off`); `/explain-aloud:mode always|auto` makes it
   speak after every / after long replies.
 - Default voice comes from read-aloud's config (`af_heart` if you followed the
@@ -101,6 +103,8 @@ skips speaking rather than letting two voices race.
 | `auto_min_bullets` | `6` | auto mode: bullet count trigger |
 | `language` | `"english"` | spoken-script language (set via the command) |
 | `provider` / `voice` | — | TTS override, written by `/explain-aloud:language`; empty = use read-aloud's |
+| `cache` | `true` | replay a message's script + audio instead of regenerating |
+| `cache_max_mb` | `200` | size cap on `~/.cache/explain-aloud` (least-recently-used evicted) |
 
 Voice, provider and speed are read from read-aloud's config
 (`~/.config/claude-read-aloud/config.json`) so the voice is picked in one place.
@@ -121,7 +125,11 @@ switches everything back.
 
 Stop hook → extract last exchange from the transcript → trigger check →
 `claude -p --model haiku` (headless, no MCP servers) writes a teacher-style
-spoken script → chunked TTS playback. Detached and hardened: a failure never
+spoken script → chunked TTS playback. Script and per-chunk audio are cached
+under `~/.cache/explain-aloud`, keyed by everything that shapes them
+(message, question, history, model, language, prompt version; voice,
+provider, speed), so a setting change misses cleanly instead of replaying
+stale audio; a failed generation is never cached. Detached and hardened: a failure never
 blocks Claude; on generation failure one fixed line is spoken instead of
 silence. Sending a new prompt cancels pending generation and playback
 (UserPromptSubmit hook), and ending the session does too (SessionEnd hook).
