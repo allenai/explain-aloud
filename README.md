@@ -1,6 +1,9 @@
 # explain-aloud
 
 > ## [don't wanna read?? just 🎙️ TRY IT OUT →](https://claude.ai/artifact/T1brUMtBHNviEaYJEdDPR7)
+<!-- Release day: this link only opens for Ai2 accounts. Once the repo is public,
+     enable GitHub Pages (Settings → Pages → main, /docs) and point it at
+     https://allenai.github.io/explain-aloud/demo/ — same page, from docs/demo/. -->
 
 To tackle the Wall Of Text problem, we've implemented a Claude Code plugin that **explains replies aloud like a teacher** instead of
 reading them verbatim.

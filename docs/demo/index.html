@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Try explain-aloud</title>
+<meta name="description" content="Press Explain and hear how explain-aloud turns a wall of text into a spoken explanation.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@700&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
+/* Layout: one centered chat column, a loud hero button above it, band pinned under the reply. */
+:root{
+  --bg:#f5f3ee; --fg:#2a2622; --muted:#7a7266; --card:#ffffff; --border:#e2ddd2;
+  --user-bubble:#e8e2d6; --accent:#c15f3c; --accent-fg:#ffffff; --band:#efece4;
+  --font-body:'Inter',system-ui,sans-serif; --font-head:'Space Grotesk',sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#1f1d1a; --fg:#e8e4dc; --muted:#9a9184; --card:#2a2723; --border:#3a362f;
+  --user-bubble:#35312a; --accent:#d97752; --accent-fg:#1f1d1a; --band:#262320;
+  color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#1f1d1a; --fg:#e8e4dc; --muted:#9a9184; --card:#2a2723; --border:#3a362f;
+  --user-bubble:#35312a; --accent:#d97752; --accent-fg:#1f1d1a; --band:#262320;
+  color-scheme:dark }
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:24px}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1{font-family:var(--font-head);font-size:1.5rem;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:0;max-width:65ch}
+.chat{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.8rem}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.msgs{display:flex;flex-direction:column;gap:16px;padding:20px 16px}
+.user{align-self:flex-end;background:var(--user-bubble);border-radius:14px 14px 4px 14px;
+  padding:10px 14px;max-width:85%}
+.assistant{display:flex;gap:10px;max-width:100%;min-width:0}
+.spark{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--accent);
+  color:var(--accent-fg);display:grid;place-items:center;font-size:.9rem}
+.assistant .text{min-width:0;line-height:1.55}
+.assistant .text p{margin:0 0 10px}
+.assistant .text p:last-child{margin:0}
+.band{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--band);
+  border-top:1px solid var(--border);padding:10px 16px;font-size:.9rem}
+.band .label{color:var(--muted);font-size:.8rem;letter-spacing:.04em}
+.band button{font-family:var(--font-body);font-size:.85rem;border:1px solid var(--border);
+  background:var(--card);color:var(--fg);border-radius:8px;padding:6px 10px;cursor:pointer}
+.band button:hover:not(:disabled){border-color:var(--accent)}
+.band button:disabled{opacity:.4;cursor:default}
+.band button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#status{color:var(--muted);min-width:12ch;font-variant-numeric:tabular-nums}
+.foot{color:var(--muted);font-size:.85rem}
+.foot a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <div>
+    <h1>explain-aloud</h1>
+    <p class="sub">(just press the "Explain" button)</p>
+  </div>
+
+  <div class="chat">
+    <div class="chat-head"><span class="dot"></span> Claude Code — demo transcript</div>
+    <div class="msgs">
+      <div class="user">why does this plugin exist?</div>
+      <div class="assistant">
+        <div class="spark">✳</div>
+        <div class="text">
+          <p>Working with coding agents has inverted the job: you write less code and read more of it — plans, diffs, explanations, trade-offs — and every answer arrives as a wall of dense text that you are expected to parse in full, every single time, which is exhausting in a way that compounds over a day of brainstorming, deciding, and instructing rather than typing.</p>
+          <p>Screen readers and read-aloud tools don't really help, because they recite the text verbatim, and text that was built for reading — markdown tables, file paths, CLI flags, bullet hierarchies — sounds terrible when spoken; what you actually want is what a good teacher does with a slide: not read it to you, but explain it, leading with the conclusion, unpacking the jargon, and pointing at the table instead of reciting its rows.</p>
+          <p>That's what explain-aloud does: after a reply, a small model rewrites it into a spoken explanation that is self-sufficient enough to act on without reading, and plays it through a local neural voice, with pause, rewind, and a live progress readout.</p>
+        </div>
+      </div>
+    </div>
+    <div class="band">
+      <span class="label">explain-aloud</span>
+      <button id="explain">🎙️ Explain</button>
+      <button id="back" disabled>⏪ 5s</button>
+      <button id="pause" disabled>⏸ Pause</button>
+      <button id="stop" disabled>⏹ Stop</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <p class="foot">Liked it? The real thing explains <em>any</em> reply, in your terminal or the desktop app: install from the <a href="https://github.com/allenai/explain-aloud">allenai/explain-aloud</a> README (Ai2 members: one click from the org plugin library).</p>
+</div>
+
+<audio id="aud" src="demo.wav" preload="auto"></audio>
+<script>
+const aud = document.getElementById('aud');
+const status_ = document.getElementById('status');
+const btn = {
+  explain: document.getElementById('explain'),
+  back: document.getElementById('back'),
+  pause: document.getElementById('pause'),
+  stop: document.getElementById('stop'),
+};
+let phase = 'idle', thinkTimer = null, tickTimer = null, thinkStart = 0;
+
+function setButtons(){
+  btn.explain.disabled = phase !== 'idle';
+  btn.back.disabled = btn.pause.disabled = phase !== 'speaking';
+  btn.stop.disabled = phase === 'idle';
+}
+function setStatus(t){ status_.textContent = t; }
+
+function start(){
+  if (phase !== 'idle') return;
+  phase = 'generating'; setButtons();
+  thinkStart = Date.now();
+  setStatus('🧠 writing script… 0s');
+  thinkTimer = setInterval(() => {
+    setStatus(`🧠 writing script… ${Math.round((Date.now() - thinkStart) / 1000)}s`);
+  }, 500);
+  // The real plugin spends 15–40s on a haiku call here; the demo thinks briefly.
+  setTimeout(() => {
+    clearInterval(thinkTimer);
+    phase = 'speaking'; setButtons();
+    aud.currentTime = 0;
+    aud.play().catch(() => { setStatus('audio blocked — tap again'); phase = 'idle'; setButtons(); });
+    tickTimer = setInterval(() => {
+      if (aud.duration) setStatus(`🔊 ${Math.round(100 * aud.currentTime / aud.duration)}%`);
+    }, 400);
+  }, 2600);
+}
+function stopAll(){
+  clearInterval(thinkTimer); clearInterval(tickTimer);
+  aud.pause(); aud.currentTime = 0;
+  phase = 'idle'; setButtons(); setStatus('');
+  btn.pause.textContent = '⏸ Pause';
+}
+btn.explain.addEventListener('click', start);
+btn.stop.addEventListener('click', stopAll);
+btn.back.addEventListener('click', () => { aud.currentTime = Math.max(0, aud.currentTime - 5); });
+btn.pause.addEventListener('click', () => {
+  if (aud.paused) { aud.play(); btn.pause.textContent = '⏸ Pause'; }
+  else { aud.pause(); btn.pause.textContent = '▶ Resume'; }
+});
+aud.addEventListener('ended', stopAll);
+setButtons();
+</script>
+
+</body>
+</html>
