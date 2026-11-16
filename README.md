@@ -2,8 +2,10 @@
 
 > ## [don't wanna read?? just 🎙️ TRY IT OUT →](https://claude.ai/artifact/T1brUMtBHNviEaYJEdDPR7)
 
-A Claude Code plugin that **explains replies aloud like a teacher** instead of
-reading them verbatim. After each qualifying reply, a cheap model (`claude -p
+To tackle the Wall Of Text problem, we've implemented a Claude Code plugin that **explains replies aloud like a teacher** instead of
+reading them verbatim.
+
+After each qualifying reply, a cheap model (`claude -p
 --model haiku`, your subscription) rewrites it into a spoken explanation —
 self-sufficient enough to act on without reading, pointing at tables instead
 of reciting them, unpacking terse jargon — and plays it through local TTS.
